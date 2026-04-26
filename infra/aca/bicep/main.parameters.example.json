@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastus"
+    },
+    "namePrefix": {
+      "value": "aegischain"
+    },
+    "imageName": {
+      "value": "youracr.azurecr.io/aegischain:latest"
+    },
+    "targetPort": {
+      "value": 8787
+    },
+    "corsOrigin": {
+      "value": "https://your-frontend-domain"
+    },
+    "jwtSecret": {
+      "value": "replace-with-strong-secret"
+    },
+    "enableCosmos": {
+      "value": true
+    },
+    "cosmosAccountName": {
+      "value": "aegischaincosmos"
+    },
+    "cosmosDatabaseName": {
+      "value": "aegischain"
+    },
+    "containerAppName": {
+      "value": "aegischain-app"
+    },
+    "containerAppEnvironmentName": {
+      "value": "aegischain-env"
+    },
+    "containerRegistryName": {
+      "value": "aegischainacr"
+    }
+  }
+}

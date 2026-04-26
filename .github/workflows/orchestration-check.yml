@@ -1,0 +1,60 @@
+name: Orchestration Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  orchestration-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start backend server
+        run: |
+          npm run dev:backend > backend.log 2>&1 &
+          echo $! > backend.pid
+
+      - name: Wait for health endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://localhost:8787/api/health > /dev/null; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to become healthy"
+          cat backend.log
+          exit 1
+
+      - name: Run orchestration checker
+        run: node backend/orchestration-check.mjs
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+          fi
+          pkill -f "node backend/server.js" || true
+
+      - name: Upload backend log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log
+          path: backend.log

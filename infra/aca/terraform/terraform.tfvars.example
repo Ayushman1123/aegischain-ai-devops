@@ -1,0 +1,9 @@
+resource_group_name = "aegischain-rg"
+location            = "eastus"
+name_prefix         = "aegischain"
+container_image     = "youracr.azurecr.io/aegischain:latest"
+jwt_secret          = "replace-with-strong-secret"
+cors_origin         = "https://your-frontend-domain"
+target_port         = 8787
+enable_cosmos       = true
+cosmos_database_name = "aegischain"

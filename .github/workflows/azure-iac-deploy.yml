@@ -1,0 +1,166 @@
+name: Azure IaC Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment name
+        required: true
+        default: production
+        type: choice
+        options:
+          - development
+          - production
+      tool:
+        description: IaC tool to run
+        required: true
+        default: bicep
+        type: choice
+        options:
+          - bicep
+          - terraform
+      operation:
+        description: plan/what-if or apply
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      resource_group:
+        description: Azure resource group name
+        required: true
+        default: aegischain-rg
+        type: string
+      location:
+        description: Azure region
+        required: true
+        default: eastus
+        type: string
+      name_prefix:
+        description: Name prefix for resources
+        required: true
+        default: aegischain
+        type: string
+      image_name:
+        description: Container image (for example myacr.azurecr.io/aegischain:latest)
+        required: true
+        type: string
+      cors_origin:
+        description: Frontend origin for CORS
+        required: true
+        default: "*"
+        type: string
+      enable_cosmos:
+        description: Provision Cosmos resources and app wiring
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ inputs.environment == 'production' && 'azure-iac-production' || format('azure-iac-{0}', inputs.environment) }}
+  cancel-in-progress: ${{ inputs.environment == 'production' && false || true }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure resource group
+        run: az group create --name "${{ inputs.resource_group }}" --location "${{ inputs.location }}"
+
+      - name: Guard production apply branch
+        if: ${{ inputs.environment == 'production' && inputs.operation == 'apply' && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "Production apply is allowed only from the main branch."
+          echo "Current ref: ${{ github.ref }}"
+          exit 1
+
+      - name: Bicep what-if
+        if: ${{ inputs.tool == 'bicep' && inputs.operation == 'plan' }}
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ inputs.resource_group }}" \
+            --template-file infra/aca/bicep/main.bicep \
+            --parameters \
+              location="${{ inputs.location }}" \
+              namePrefix="${{ inputs.name_prefix }}" \
+              imageName="${{ inputs.image_name }}" \
+              corsOrigin="${{ inputs.cors_origin }}" \
+              jwtSecret="${{ secrets.APP_JWT_SECRET }}" \
+              enableCosmos="${{ inputs.enable_cosmos }}"
+
+      - name: Bicep apply
+        if: ${{ inputs.tool == 'bicep' && inputs.operation == 'apply' }}
+        run: |
+          az deployment group create \
+            --resource-group "${{ inputs.resource_group }}" \
+            --template-file infra/aca/bicep/main.bicep \
+            --parameters \
+              location="${{ inputs.location }}" \
+              namePrefix="${{ inputs.name_prefix }}" \
+              imageName="${{ inputs.image_name }}" \
+              corsOrigin="${{ inputs.cors_origin }}" \
+              jwtSecret="${{ secrets.APP_JWT_SECRET }}" \
+              enableCosmos="${{ inputs.enable_cosmos }}"
+
+      - name: Setup Terraform
+        if: ${{ inputs.tool == 'terraform' }}
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        if: ${{ inputs.tool == 'terraform' }}
+        working-directory: infra/aca/terraform
+        run: terraform init
+
+      - name: Terraform plan
+        if: ${{ inputs.tool == 'terraform' && inputs.operation == 'plan' }}
+        working-directory: infra/aca/terraform
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform plan -input=false \
+            -var="resource_group_name=${{ inputs.resource_group }}" \
+            -var="location=${{ inputs.location }}" \
+            -var="name_prefix=${{ inputs.name_prefix }}" \
+            -var="container_image=${{ inputs.image_name }}" \
+            -var="jwt_secret=${{ secrets.APP_JWT_SECRET }}" \
+            -var="cors_origin=${{ inputs.cors_origin }}" \
+            -var="enable_cosmos=${{ inputs.enable_cosmos }}"
+
+      - name: Terraform apply
+        if: ${{ inputs.tool == 'terraform' && inputs.operation == 'apply' }}
+        working-directory: infra/aca/terraform
+        env:
+          ARM_USE_OIDC: true
+          ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          terraform apply -auto-approve -input=false \
+            -var="resource_group_name=${{ inputs.resource_group }}" \
+            -var="location=${{ inputs.location }}" \
+            -var="name_prefix=${{ inputs.name_prefix }}" \
+            -var="container_image=${{ inputs.image_name }}" \
+            -var="jwt_secret=${{ secrets.APP_JWT_SECRET }}" \
+            -var="cors_origin=${{ inputs.cors_origin }}" \
+            -var="enable_cosmos=${{ inputs.enable_cosmos }}"
