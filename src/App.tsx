@@ -15,15 +15,19 @@ import { HistoricalPlayback } from '@/components/HistoricalPlayback'
 import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
+import { AuthScreen } from '@/components/AuthScreen'
 import { AGENTS, SAMPLE_SHIPMENTS, formatTimestamp } from '@/lib/agents'
 import { formatETA } from '@/lib/tracking'
+import { generateRiskAnalysis, getActiveLlmProviderLabel } from '@/lib/llm'
 import { useRealTimeTracking } from '@/hooks/use-real-time-tracking'
+import { useAuthSession } from '@/hooks/use-auth-session'
 import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise, ClockCounterClockwise, CurrencyDollar, Cloud, Car } from '@phosphor-icons/react'
 import type { Agent, Shipment, RiskAnalysis, AgentWorkflowStep, NotificationAlert, WeatherData, TrafficData } from '@/types'
 import { toast } from 'sonner'
 import { useKV } from '@github/spark/hooks'
 
 function App() {
+  const { user, loading: authLoading, authError, loginWithProfile, logout } = useAuthSession()
   const [agents] = useState<Agent[]>(AGENTS)
   const { shipments, isTracking, toggleTracking, manualUpdate } = useRealTimeTracking(SAMPLE_SHIPMENTS, 3000)
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
@@ -63,6 +67,24 @@ function App() {
     })
   }, [shipments, setNotifications])
 
+  if (authLoading && !user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="text-sm text-muted-foreground">Checking session...</div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <AuthScreen
+        isAuthenticating={authLoading}
+        authError={authError}
+        onLogin={loginWithProfile}
+      />
+    )
+  }
+
   const handleAnalyzeShipment = async (shipment: Shipment) => {
     setIsAnalyzing(true)
     setShowAnalysisDialog(true)
@@ -94,7 +116,7 @@ Return ONLY valid JSON in this exact format:
   "summary": "brief overall assessment"
 }`
 
-      const response = await window.spark.llm(prompt, 'gpt-4o', true)
+      const response = await generateRiskAnalysis(prompt)
       const data = JSON.parse(response)
       
       const analysis: RiskAnalysis = {
@@ -109,7 +131,7 @@ Return ONLY valid JSON in this exact format:
       
       setAnalysisResult(analysis)
       toast.success('Risk analysis complete', {
-        description: 'Multi-agent analysis finished successfully'
+        description: `Multi-agent analysis finished successfully via ${getActiveLlmProviderLabel()}`
       })
     } catch (error) {
       console.error('Analysis error:', error)
@@ -154,6 +176,14 @@ Return ONLY valid JSON in this exact format:
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-2 text-xs text-muted-foreground mr-2">
+                  {user.picture ? (
+                    <img src={user.picture} alt={user.name} className="w-7 h-7 rounded-full border border-border" />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full border border-border bg-muted" />
+                  )}
+                  <span>{user.name}</span>
+                </div>
                 <Button
                   size="sm"
                   variant={isTracking ? "default" : "outline"}
@@ -196,6 +226,13 @@ Return ONLY valid JSON in this exact format:
                       {unreadNotifications}
                     </span>
                   )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={logout}
+                >
+                  Logout
                 </Button>
               </div>
             </div>
