@@ -416,6 +416,11 @@ export function createShipmentRouter(db, options = {}) {
   }))
 
   router.get('/:id/timeline', asyncHandler(async (req, res) => {
+    const shipment = await db.get('SELECT id FROM shipments WHERE id = ? AND userId = ?', [req.params.id, req.user.id])
+    if (!shipment) {
+      return res.status(404).json({ error: 'Shipment not found' })
+    }
+
     const history = await db.all(
       'SELECT latitude, longitude, speed, heading, timestamp FROM location_history WHERE shipmentId = ? ORDER BY timestamp ASC LIMIT 500',
       [req.params.id]
