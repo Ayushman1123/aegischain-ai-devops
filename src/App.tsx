@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,6 @@ import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { SupportChatbot } from '@/components/SupportChatbot'
-import { AuthScreen } from '@/components/AuthScreen'
 import { formatTimestamp } from '@/lib/agents'
 import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
@@ -26,7 +25,7 @@ import type { Agent, Shipment, RiskAnalysis } from '@/types'
 import { toast } from 'sonner'
 
 function App() {
-  const { user, loading: authLoading, authError, loginWithProfile, logout } = useAuthSession()
+  const { user, loading: authLoading, profileError, updateProfile } = useAuthSession()
   const {
     agents,
     shipments,
@@ -55,11 +54,22 @@ function App() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showWorkflow, setShowWorkflow] = useState(false)
   const [agentTaskPrompt, setAgentTaskPrompt] = useState('')
+  const [profileName, setProfileName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
 
   const activeAgents = agents.filter((agent) => agent.status === 'active' || agent.status === 'processing')
   const criticalShipments = shipments.filter((shipment) => shipment.riskLevel === 'critical' || shipment.status === 'crisis')
   const avgRisk = shipments.length > 0 ? Math.round(shipments.reduce((sum, shipment) => sum + shipment.riskScore, 0) / shipments.length) : 0
   const unreadNotifications = notifications.filter((notification) => !notification.read).length
+
+  useEffect(() => {
+    if (!profileName && user?.name) {
+      setProfileName(user.name)
+    }
+    if (!profileEmail && user?.email) {
+      setProfileEmail(user.email)
+    }
+  }, [profileName, profileEmail, user])
 
   if (authLoading && !user) {
     return (
@@ -70,13 +80,7 @@ function App() {
   }
 
   if (!user) {
-    return (
-      <AuthScreen
-        isAuthenticating={authLoading}
-        authError={authError}
-        onLogin={loginWithProfile}
-      />
-    )
+    return null
   }
 
   if (user && controlTowerLoading) {
@@ -143,6 +147,28 @@ function App() {
     }
   }
 
+  const handleUpdateProfile = async () => {
+    const normalizedName = profileName.trim()
+    const normalizedEmail = profileEmail.trim().toLowerCase()
+
+    if (normalizedName.length < 2) {
+      toast.error('Enter a valid name')
+      return
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      toast.error('Enter a valid email address')
+      return
+    }
+
+    try {
+      await updateProfile(normalizedName, normalizedEmail)
+      toast.success('Profile updated')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update profile')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-background to-background -z-10" />
@@ -182,6 +208,39 @@ function App() {
                     <div className="w-7 h-7 rounded-full border border-border bg-muted" />
                   )}
                   <span>{user.name}</span>
+                </div>
+                <div className="hidden xl:flex items-end gap-2 mr-2">
+                  <div className="grid gap-1">
+                    <Label htmlFor="operator-name" className="text-[10px] uppercase tracking-wide text-muted-foreground">Operator</Label>
+                    <Input
+                      id="operator-name"
+                      value={profileName}
+                      onChange={(event) => setProfileName(event.target.value)}
+                      className="h-8 w-36"
+                      disabled={authLoading}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor="operator-email" className="text-[10px] uppercase tracking-wide text-muted-foreground">Email</Label>
+                    <Input
+                      id="operator-email"
+                      value={profileEmail}
+                      onChange={(event) => setProfileEmail(event.target.value)}
+                      className="h-8 w-48"
+                      disabled={authLoading}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    disabled={authLoading}
+                    onClick={() => {
+                      void handleUpdateProfile()
+                    }}
+                  >
+                    Apply
+                  </Button>
                 </div>
                 <Button
                   size="sm"
@@ -229,18 +288,19 @@ function App() {
                     </span>
                   )}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={logout}
-                >
-                  Logout
-                </Button>
               </div>
             </div>
           </div>
         </div>
       </header>
+
+      {profileError && (
+        <div className="container mx-auto px-6 pt-4">
+          <div className="text-sm rounded-md border border-destructive/40 bg-destructive/10 text-destructive p-3">
+            {profileError}
+          </div>
+        </div>
+      )}
 
       <main className="container mx-auto px-6 py-8">
         <Tabs defaultValue="dashboard" className="space-y-6">

@@ -12,9 +12,67 @@ import type {
 
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const API_BASE_URL = configuredApiBaseUrl ? configuredApiBaseUrl.replace(/\/+$/, '') : ''
+const API_BASE_STORAGE_KEY = 'aegischain.api.base'
 const REQUEST_TIMEOUT_MS = 10000
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 500
+
+let activeApiBase = ''
+
+function normalizeBase(base: string) {
+  if (!base) {
+    return ''
+  }
+  return base.replace(/\/+$/, '')
+}
+
+function getCodespacesSiblingOrigins() {
+  const { protocol, host } = window.location
+  const match = host.match(/^(.*)-(\d+)(\..+)$/)
+  if (!match) {
+    return []
+  }
+
+  const [, prefix, activePort, suffix] = match
+  const candidatePorts = ['5000', '4173', '4174', '4175', '8787']
+
+  return candidatePorts
+    .filter((port) => port !== activePort)
+    .map((port) => `${protocol}//${prefix}-${port}${suffix}`)
+}
+
+function getApiBaseCandidates() {
+  const candidates = new Set<string>()
+
+  if (API_BASE_URL) {
+    candidates.add(normalizeBase(API_BASE_URL))
+  }
+
+  if (activeApiBase && !activeApiBase.includes('localhost') && !activeApiBase.match(/:\d+$/)) {
+    candidates.add(normalizeBase(activeApiBase))
+  }
+
+  const stored = localStorage.getItem(API_BASE_STORAGE_KEY)
+  if (stored && !stored.includes('localhost') && !stored.match(/:\d+$/)) {
+    candidates.add(normalizeBase(stored))
+  }
+
+  // Always try same-origin (proxied by Vite) — works in Codespaces and local dev
+  candidates.add('')
+
+  // If current page is on a non-proxied Codespaces port, try sibling forwarded ports.
+  for (const origin of getCodespacesSiblingOrigins()) {
+    candidates.add(normalizeBase(origin))
+  }
+
+  return [...candidates]
+}
+
+function persistWorkingApiBase(base: string) {
+  const normalized = normalizeBase(base)
+  activeApiBase = normalized
+  localStorage.setItem(API_BASE_STORAGE_KEY, normalized)
+}
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -84,43 +142,57 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getStoredToken()
   let lastError: Error | null = null
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
-    const headers = new Headers(init?.headers)
-    headers.set('Content-Type', 'application/json')
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`)
-    }
+  for (const apiBase of getApiBaseCandidates()) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+      const headers = new Headers(init?.headers)
+      headers.set('Content-Type', 'application/json')
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
 
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-    try {
-      const response = await fetch(`${API_BASE_URL}${path}`, {
-        ...init,
-        headers,
-        signal: controller.signal,
-      })
+      try {
+        const response = await fetch(`${apiBase}${path}`, {
+          ...init,
+          headers,
+          signal: controller.signal,
+        })
 
-      if (!response.ok) {
-        if (attempt < MAX_RETRIES && shouldRetryStatus(response.status)) {
+        if (!response.ok) {
+          if (attempt < MAX_RETRIES && shouldRetryStatus(response.status)) {
+            await wait(RETRY_DELAY_MS * attempt)
+            continue
+          }
+
+          if ([404, 502, 503, 504].includes(response.status)) {
+            lastError = new Error(response.statusText || 'Request failed')
+            break
+          }
+
+          const payload = await response.json().catch(() => ({ error: 'Request failed' })) as { error?: string }
+          throw new Error(payload.error || 'Request failed')
+        }
+
+        persistWorkingApiBase(apiBase)
+        const body = await response.text()
+        try {
+          return JSON.parse(body) as T
+        } catch {
+          throw new Error('Server returned an unexpected response. Please try again.')
+        }
+      } catch (error) {
+        const isAbortError = error instanceof DOMException && error.name === 'AbortError'
+        lastError = isAbortError ? new Error('Backend request timed out') : (error as Error)
+
+        if (attempt < MAX_RETRIES) {
           await wait(RETRY_DELAY_MS * attempt)
           continue
         }
-        const payload = await response.json().catch(() => ({ error: 'Request failed' })) as { error?: string }
-        throw new Error(payload.error || 'Request failed')
+      } finally {
+        window.clearTimeout(timeout)
       }
-
-      return response.json() as Promise<T>
-    } catch (error) {
-      const isAbortError = error instanceof DOMException && error.name === 'AbortError'
-      lastError = isAbortError ? new Error('Backend request timed out') : (error as Error)
-
-      if (attempt < MAX_RETRIES) {
-        await wait(RETRY_DELAY_MS * attempt)
-        continue
-      }
-    } finally {
-      window.clearTimeout(timeout)
     }
   }
 
@@ -214,8 +286,11 @@ export async function createBlockchainPayment(payload: {
 }
 
 export function getWebSocketUrl() {
-  if (API_BASE_URL) {
-    const base = API_BASE_URL.replace(/^http/i, 'ws')
+  const stored = localStorage.getItem(API_BASE_STORAGE_KEY)
+  const preferredBase = normalizeBase(API_BASE_URL || activeApiBase || stored || '')
+
+  if (preferredBase) {
+    const base = preferredBase.replace(/^http/i, 'ws')
     return `${base}/ws`
   }
 
