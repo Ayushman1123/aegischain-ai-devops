@@ -17,7 +17,6 @@ import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { SupportChatbot } from '@/components/SupportChatbot'
-import { AuthScreen } from '@/components/AuthScreen'
 import { formatTimestamp } from '@/lib/agents'
 import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
@@ -26,7 +25,7 @@ import type { Agent, Shipment, RiskAnalysis } from '@/types'
 import { toast } from 'sonner'
 
 function App() {
-  const { user, loading: authLoading, authError, loginWithProfile, logout } = useAuthSession()
+  const { user, loading: authLoading, authError, logout } = useAuthSession()
   const {
     agents,
     shipments,
@@ -64,18 +63,18 @@ function App() {
   if (authLoading && !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <div className="text-sm text-muted-foreground">Checking session...</div>
+        <div className="text-sm text-muted-foreground">Connecting to control tower...</div>
       </div>
     )
   }
 
   if (!user) {
     return (
-      <AuthScreen
-        isAuthenticating={authLoading}
-        authError={authError}
-        onLogin={loginWithProfile}
-      />
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="text-sm text-destructive">
+          {authError || 'Unable to initialize operator session. Ensure backend is running.'}
+        </div>
+      </div>
     )
   }
 

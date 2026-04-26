@@ -10,7 +10,19 @@ import type {
   Shipment,
 } from '@/types'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787'
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const API_BASE_URL = configuredApiBaseUrl ? configuredApiBaseUrl.replace(/\/+$/, '') : ''
+const REQUEST_TIMEOUT_MS = 10000
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 500
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function shouldRetryStatus(status: number) {
+  return status === 408 || status === 425 || status === 429 || status >= 500
+}
 
 type SupportMessage = {
   id: string
@@ -70,23 +82,49 @@ type BlockchainPaymentResponse = {
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getStoredToken()
-  const headers = new Headers(init?.headers)
-  headers.set('Content-Type', 'application/json')
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+    const headers = new Headers(init?.headers)
+    headers.set('Content-Type', 'application/json')
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        if (attempt < MAX_RETRIES && shouldRetryStatus(response.status)) {
+          await wait(RETRY_DELAY_MS * attempt)
+          continue
+        }
+        const payload = await response.json().catch(() => ({ error: 'Request failed' })) as { error?: string }
+        throw new Error(payload.error || 'Request failed')
+      }
+
+      return response.json() as Promise<T>
+    } catch (error) {
+      const isAbortError = error instanceof DOMException && error.name === 'AbortError'
+      lastError = isAbortError ? new Error('Backend request timed out') : (error as Error)
+
+      if (attempt < MAX_RETRIES) {
+        await wait(RETRY_DELAY_MS * attempt)
+        continue
+      }
+    } finally {
+      window.clearTimeout(timeout)
+    }
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-  })
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({ error: 'Request failed' })) as { error?: string }
-    throw new Error(payload.error || 'Request failed')
-  }
-
-  return response.json() as Promise<T>
+  throw new Error(lastError?.message || 'Cannot reach backend service. Please verify backend availability.')
 }
 
 export async function fetchDashboard() {
@@ -176,8 +214,13 @@ export async function createBlockchainPayment(payload: {
 }
 
 export function getWebSocketUrl() {
-  const base = API_BASE_URL.replace(/^http/i, 'ws')
-  return `${base}/ws`
+  if (API_BASE_URL) {
+    const base = API_BASE_URL.replace(/^http/i, 'ws')
+    return `${base}/ws`
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws`
 }
 
 export type {

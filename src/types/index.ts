@@ -60,10 +60,20 @@ export interface RiskAnalysis {
   shipmentId: string
   riskScore: number
   riskLevel: RiskLevel
+  predictiveDisruptionProbability?: number
+  predictiveSignals?: PredictiveDisruptionSignals
   factors: RiskFactor[]
   recommendations: string[]
   analysisTimestamp: string
   analyzedBy: string[]
+}
+
+export interface PredictiveDisruptionSignals {
+  etaVariance: number
+  weatherAnomaly: number
+  portCongestionAnomaly: number
+  fuelPriceAnomaly: number
+  carrierReliabilityRisk: number
 }
 
 export interface RiskFactor {

@@ -124,6 +124,99 @@ function nextRiskLevel(score) {
   return 'low'
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function deterministicSignal(shipmentId, salt) {
+  const seed = `${shipmentId}:${salt}`
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 100000
+  }
+  return hash / 100000
+}
+
+function parseEtaToMinutes(eta) {
+  if (!eta || typeof eta !== 'string') return 0
+
+  const minuteMatch = eta.match(/(\d+)\s*min/i)
+  const hourMatch = eta.match(/(\d+)\s*h/i)
+  const dayMatch = eta.match(/(\d+)\s*d/i)
+
+  const minutes = minuteMatch ? Number(minuteMatch[1]) : 0
+  const hours = hourMatch ? Number(hourMatch[1]) : 0
+  const days = dayMatch ? Number(dayMatch[1]) : 0
+
+  return minutes + (hours * 60) + (days * 24 * 60)
+}
+
+function buildPredictiveDisruptionIntelligence(shipment) {
+  const averageSpeed = Math.max(Number(shipment.averageSpeed) || 20, 20)
+  const estimatedDistance = Number(shipment.estimatedDistance) || 0
+  const remainingDistance = Number(shipment.remainingDistance) || 0
+  const progress = clamp(Number(shipment.progress) || 0, 0, 100)
+  const riskBaseline = clamp((Number(shipment.riskScore) || 0) / 100, 0, 1)
+  const etaMinutes = parseEtaToMinutes(shipment.eta)
+  const baselineMinutes = estimatedDistance > 0 ? (estimatedDistance / averageSpeed) * 60 : 0
+  const baselineProgress = baselineMinutes > 0
+    ? clamp(((baselineMinutes - etaMinutes) / baselineMinutes) * 100, 0, 100)
+    : progress
+
+  const etaVariance = clamp(Math.abs(progress - baselineProgress) / 100, 0, 1)
+  const weatherAnomaly = clamp(
+    (shipment.status === 'crisis' ? 0.55 : shipment.status === 'delayed' ? 0.35 : 0.2) +
+    clamp(remainingDistance / 1800, 0, 0.25) +
+    deterministicSignal(shipment.id, 'weather') * 0.2,
+    0,
+    1
+  )
+  const portCongestionAnomaly = clamp(
+    (shipment.status === 'delayed' ? 0.45 : 0.2) +
+    clamp((100 - progress) / 250, 0, 0.35) +
+    deterministicSignal(shipment.id, 'port') * 0.2,
+    0,
+    1
+  )
+  const fuelPriceAnomaly = clamp(
+    0.2 +
+    (averageSpeed < 60 ? 0.2 : 0.1) +
+    deterministicSignal(shipment.id, 'fuel') * 0.25,
+    0,
+    1
+  )
+  const carrierReliabilityRisk = clamp(
+    0.15 +
+    riskBaseline * 0.5 +
+    (shipment.status === 'crisis' ? 0.2 : 0) +
+    deterministicSignal(shipment.id, 'carrier') * 0.2,
+    0,
+    1
+  )
+
+  const disruptionProbability = Math.round(clamp(
+    (etaVariance * 0.24) +
+    (weatherAnomaly * 0.19) +
+    (portCongestionAnomaly * 0.19) +
+    (fuelPriceAnomaly * 0.14) +
+    (carrierReliabilityRisk * 0.14) +
+    (riskBaseline * 0.1),
+    0,
+    1
+  ) * 100)
+
+  return {
+    disruptionProbability,
+    signals: {
+      etaVariance: Math.round(etaVariance * 100),
+      weatherAnomaly: Math.round(weatherAnomaly * 100),
+      portCongestionAnomaly: Math.round(portCongestionAnomaly * 100),
+      fuelPriceAnomaly: Math.round(fuelPriceAnomaly * 100),
+      carrierReliabilityRisk: Math.round(carrierReliabilityRisk * 100),
+    },
+  }
+}
+
 export function simulateShipmentUpdate(shipment) {
   if (shipment.status === 'delivered') {
     return shipment
@@ -169,6 +262,21 @@ export function simulateShipmentUpdate(shipment) {
 export function buildAnalysisForShipment(shipment) {
   const factors = []
   const recommendations = []
+  const predictive = buildPredictiveDisruptionIntelligence(shipment)
+
+  if (predictive.disruptionProbability >= 35) {
+    factors.push({
+      category: 'Predictive disruption outlook',
+      severity: predictive.disruptionProbability >= 75 ? 'critical' : predictive.disruptionProbability >= 55 ? 'high' : 'medium',
+      description: `Time-series ETA variance and anomaly signals forecast a ${predictive.disruptionProbability}% disruption probability (weather ${predictive.signals.weatherAnomaly}%, port congestion ${predictive.signals.portCongestionAnomaly}%, fuel-price volatility ${predictive.signals.fuelPriceAnomaly}%, carrier reliability risk ${predictive.signals.carrierReliabilityRisk}%).`,
+      impact: Math.max(4, Math.round(predictive.disruptionProbability / 10)),
+    })
+    recommendations.push('Run route re-optimization now and compare the top alternatives before the next delay threshold is crossed.')
+  }
+
+  if (predictive.disruptionProbability >= 70) {
+    recommendations.push('Escalate to proactive mitigation: pre-book alternate capacity and notify stakeholders of likely ETA impact.')
+  }
 
   if (shipment.status === 'crisis') {
     factors.push({
@@ -225,6 +333,8 @@ export function buildAnalysisForShipment(shipment) {
     shipmentId: shipment.id,
     riskScore: shipment.riskScore,
     riskLevel: shipment.riskLevel,
+    predictiveDisruptionProbability: predictive.disruptionProbability,
+    predictiveSignals: predictive.signals,
     factors,
     recommendations,
     analyzedBy: ['Planner Agent', 'RAG Context Agent', 'Risk Detection Agent'],
@@ -272,7 +382,10 @@ function workflowOutput(agentId, shipment, analysis) {
     case 'rag':
       return { context: `Retrieved route knowledge for ${shipment.origin} to ${shipment.destination}.` }
     case 'risk-detection':
-      return { factors: analysis.factors.slice(0, 2) }
+      return {
+        factors: analysis.factors.slice(0, 2),
+        predictiveDisruptionProbability: analysis.predictiveDisruptionProbability,
+      }
     case 'supply-optimization':
       return { recommendation: analysis.recommendations[0] }
     case 'communication':

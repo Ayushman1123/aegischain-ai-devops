@@ -15,7 +15,8 @@ class AuthApiError extends Error {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787'
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
+const API_BASE_URL = configuredApiBaseUrl ? configuredApiBaseUrl.replace(/\/+$/, '') : ''
 const TOKEN_STORAGE_KEY = 'aegischain.auth.token'
 const USER_STORAGE_KEY = 'aegischain.auth.user'
 

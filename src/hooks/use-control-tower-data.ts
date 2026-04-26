@@ -28,6 +28,7 @@ export function useControlTowerData(enabled: boolean) {
   const [loading, setLoading] = useState(true)
   const [trackingEnabled, setTrackingEnabled] = useState(true)
   const websocketRef = useRef<WebSocket | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     const [dashboard, workflow, notifRes, chatRes] = await Promise.all([
@@ -74,6 +75,10 @@ export function useControlTowerData(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled || !trackingEnabled) {
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       websocketRef.current?.close()
       websocketRef.current = null
       return
@@ -84,52 +89,97 @@ export function useControlTowerData(enabled: boolean) {
       return
     }
 
-    const socket = new WebSocket(`${getWebSocketUrl()}?token=${encodeURIComponent(token)}`)
-    websocketRef.current = socket
+    let stopped = false
+    let reconnectDelay = 1000
 
-    socket.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data) as {
-          event: string
-          payload?: {
-            shipments?: Shipment[]
-            notifications?: NotificationAlert[]
+    const connect = () => {
+      if (stopped) {
+        return
+      }
+
+      const socket = new WebSocket(`${getWebSocketUrl()}?token=${encodeURIComponent(token)}`)
+      websocketRef.current = socket
+
+      socket.onopen = () => {
+        reconnectDelay = 1000
+      }
+
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data) as {
+            event: string
+            payload?: {
+              shipments?: Shipment[]
+              notifications?: NotificationAlert[]
+            }
           }
+
+          if (parsed.event === 'tracking.updated') {
+            if (parsed.payload?.shipments) {
+              setShipments(parsed.payload.shipments)
+            }
+            if (parsed.payload?.notifications) {
+              setNotifications((current) => [...parsed.payload!.notifications!, ...current].slice(0, 100))
+            }
+          }
+
+          if (
+            parsed.event === 'workflow.updated' ||
+            parsed.event === 'blockchain.paymentConfirmed'
+          ) {
+            void refresh()
+          }
+        } catch {
+          // Ignore malformed websocket payloads.
+        }
+      }
+
+      socket.onerror = () => {
+        socket.close()
+      }
+
+      socket.onclose = () => {
+        if (websocketRef.current === socket) {
+          websocketRef.current = null
         }
 
-        if (parsed.event === 'tracking.updated') {
-          if (parsed.payload?.shipments) {
-            setShipments(parsed.payload.shipments)
-          }
-          if (parsed.payload?.notifications) {
-            setNotifications((current) => [...parsed.payload!.notifications!, ...current].slice(0, 100))
-          }
+        if (!stopped) {
+          reconnectTimerRef.current = window.setTimeout(() => {
+            connect()
+          }, reconnectDelay)
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000)
         }
-
-        if (
-          parsed.event === 'workflow.updated' ||
-          parsed.event === 'blockchain.paymentConfirmed'
-        ) {
-          void refresh()
-        }
-      } catch {
-        // Ignore malformed websocket payloads.
       }
     }
 
-    socket.onclose = () => {
-      if (websocketRef.current === socket) {
-        websocketRef.current = null
-      }
-    }
+    connect()
 
     return () => {
-      if (websocketRef.current === socket) {
-        websocketRef.current = null
+      stopped = true
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
       }
-      socket.close()
+      websocketRef.current?.close()
+      websocketRef.current = null
     }
   }, [enabled, refresh, trackingEnabled])
+
+  useEffect(() => {
+    if (!enabled) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refresh().catch(() => {
+        // Keep running; retries are handled at request level.
+      })
+    }, 20000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [enabled, refresh])
 
   const manualRefresh = useCallback(async () => {
     await simulateTracking()

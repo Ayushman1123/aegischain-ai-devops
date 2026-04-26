@@ -263,6 +263,8 @@ async function createAnalysisAndWorkflow(db, userId, shipment) {
       shipmentId: shipment.id,
       riskScore: analysis.riskScore,
       riskLevel: analysis.riskLevel,
+      predictiveDisruptionProbability: analysis.predictiveDisruptionProbability,
+      predictiveSignals: analysis.predictiveSignals,
       factors: analysis.factors,
       recommendations: analysis.recommendations,
       analysisTimestamp: now,

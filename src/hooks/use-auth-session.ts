@@ -11,7 +11,10 @@ export function useAuthSession() {
 
     const hydrate = async () => {
       try {
-        const sessionUser = await fetchAuthenticatedUser()
+        let sessionUser = await fetchAuthenticatedUser()
+        if (!sessionUser) {
+          sessionUser = await signInWithProfile('AegisChain Operator', 'operator@aegischain.ai')
+        }
         if (mounted) {
           setUser(sessionUser)
         }

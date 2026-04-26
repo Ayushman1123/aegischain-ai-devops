@@ -25,7 +25,7 @@ dotenv.config()
 const app = express()
 const port = Number(process.env.PORT || 8787)
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me'
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173'
+const corsOrigin = process.env.CORS_ORIGIN || '*'
 const dbPath = process.env.DB_PATH || './data/aegischain.db'
 
 if (jwtSecret === 'dev-secret-change-me') {
@@ -37,7 +37,11 @@ let realtime
 let httpServer
 let cloudStore
 
-app.use(cors({ origin: corsOrigin }))
+const corsOptions = corsOrigin === '*'
+  ? {}
+  : { origin: corsOrigin.split(',').map((origin) => origin.trim()).filter(Boolean) }
+
+app.use(cors(corsOptions))
 app.use(express.json())
 
 app.use((req, res, next) => {
