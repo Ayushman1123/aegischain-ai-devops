@@ -1,67 +1,188 @@
-# ✨ Welcome to Your Spark Template!
-You've just launched your brand-new Spark Template Codespace — everything’s fired up and ready for you to explore, build, and create with Spark!
+# ✨ Welcome to aegischain-ai
 
-This template is your blank canvas. It comes with a minimal setup to help you get started quickly with Spark development.
+AegisChain AI
+Agentic AI + Blockchain Powered Smart Supply Chain & Crisis Response System
+🌍 Overview
 
-🚀 What's Inside?
-- A clean, minimal Spark environment
-- Pre-configured for local development
-- Ready to scale with your ideas
-  
-🧠 What Can You Do?
+AegisChain AI is a next-generation, production-grade platform that combines:
 
-Right now, this is just a starting point — the perfect place to begin building and testing your Spark applications.
+🤖 Agentic AI (multi-agent systems)
+🔗 Blockchain (Web2 + Web3 hybrid)
+📦 Smart Supply Chain Intelligence
+🚨 Real-time Crisis Response (hospitality + logistics)
+📚 Advanced RAG (anti-hallucination AI)
 
-## Hugging Face Model Setup
+It is designed to detect, predict, and autonomously respond to disruptions across complex, real-world environments.
 
-This project now supports using a Hugging Face model for shipment risk analysis.
+🎯 Problem Statement
 
-1. Add your key and model in `.env.local`:
+Modern systems face:
 
-```bash
-VITE_HUGGING_FACE_API_KEY=hf_your_token_here
-VITE_HUGGING_FACE_MODEL=mistralai/Mistral-7B-Instruct-v0.3
-```
+Fragmented communication during crises
+Delayed detection of supply chain disruptions
+Lack of trust in centralized logging systems
+Poor coordination between stakeholders
+💡 Solution
 
-2. Start the app:
+AegisChain AI provides:
 
-```bash
-npm run dev
-```
+⚡ Real-time anomaly detection
+🧠 Autonomous decision-making using AI agents
+🔄 Dynamic route optimization
+🔗 Immutable blockchain event logging
+📡 Unified communication across ecosystem
+🧠 Core Features
+🤖 Agentic AI System
+Multi-agent architecture (LangGraph)
+Planner–Executor model
+Tool-augmented reasoning (ReAct)
+📦 Supply Chain Intelligence
+Predict disruptions before they happen
+Optimize routes dynamically
+Analyze real-time + historical data
+🚨 Crisis Response Engine
+Detect emergencies instantly
+Coordinate response across stakeholders
+Trigger automated workflows
+📚 Advanced RAG (Anti-Hallucination)
+Hybrid retrieval (FAISS + BM25)
+Re-ranking + context compression
+Source-grounded responses
+🔗 Blockchain Integration
+Smart contract-based event logging
+MetaMask / WalletConnect support
+IPFS-based data storage
+🏗️ System Architecture
+Frontend (Next.js + Web3)
+        ↓
+API Gateway (FastAPI)
+        ↓
+LangGraph Orchestrator
+        ↓
+Multi-Agent System
+        ↓
+RAG Layer (Vector DB)
+        ↓
+Data Layer (CSV + Streams)
+        ↓
+Blockchain Layer (Smart Contracts)
+⚙️ Tech Stack
+🧠 AI / ML
+LangChain
+LangGraph
+HuggingFace (Llama 3.3)
+FAISS / BM25
+🔧 Backend
+FastAPI
+Python 3.11
+Redis (memory)
+Kafka (streaming)
+🌐 Frontend
+Next.js
+Tailwind CSS
+ethers.js / wagmi
+🔗 Blockchain
+Solidity
+Web3.py / ethers.js
+IPFS
+🗄️ Database
+PostgreSQL
+Vector DB (FAISS / Pinecone)
+🚀 DevOps
+Docker
+Kubernetes (K8s)
+GitHub Actions (CI/CD)
+Prometheus + Grafana
+📁 Project Structure
+project/
+├── backend/
+│   ├── app/
+│   │   ├── agents/
+│   │   ├── orchestration/
+│   │   ├── rag/
+│   │   ├── blockchain/
+│   │   ├── api/
+│   │   └── main.py
+│
+├── frontend/
+├── contracts/
+├── k8s/
+├── docker-compose.yml
+└── .github/workflows/
+🚀 Getting Started
+🔧 Prerequisites
+Docker & Docker Compose
+Node.js (v20+)
+Python (3.11+)
+Kubernetes (optional for production)
+⚡ Local Development
+# Clone repo
+git clone https://github.com/your-username/aegischain-ai.git
+cd aegischain-ai
 
-If `VITE_HUGGING_FACE_API_KEY` is set, the app uses Hugging Face via the router API.
-If not set, it falls back to Spark LLM (`gpt-4o`).
+# Start services
+docker-compose up --build
+🌐 Access
+Frontend → http://localhost:3000
+Backend → http://localhost:8000
+🔐 Environment Variables
 
-## Name + Email Login + Backend Auth Setup
+Create .env:
 
-This project includes a backend session flow for normal login.
-Users must enter name and email before the dashboard is shown.
+HF_TOKEN=your_token
+HF_MODEL=meta-llama/Llama-3.3-70B-Instruct
+HF_PROVIDER=together
 
-1. Fill these values in `.env`:
+DATABASE_URL=postgresql://user:pass@postgres:5432/db
+REDIS_URL=redis://redis:6379
+KAFKA_BROKER=kafka:9092
 
-	- `JWT_SECRET` (long random string)
-	- Optional: `PORT` (default `8787`), `CORS_ORIGIN` (default `http://localhost:5173`)
+WEB3_PROVIDER=https://rpc-url
+🤖 API Example
+POST /analyze
 
-2. Start backend in one terminal:
+{
+  "input": "Shipment delay due to weather in region X"
+}
+🔄 Agent Workflow
+Input → Planner Agent
+      → RAG Agent
+      → Risk Detection Agent
+      → Decision Node
+          → Crisis Agent OR Optimization Agent
+      → Communication Agent
+      → Blockchain Logging
+☸️ Deployment
+🐳 Docker
+docker-compose up --build
+☸️ Kubernetes
+kubectl apply -f k8s/
+🔄 CI/CD
+Automated via GitHub Actions
+Builds → Push → Deploy
+📊 Observability
+Prometheus (metrics)
+Grafana (dashboard)
+Structured logging
+🔒 Security
+JWT authentication
+Secure secrets management
+Blockchain-backed audit trail
+🧠 Future Enhancements
+Reinforcement learning for routing
+Multi-modal AI (IoT + vision)
+Decentralized identity (DID)
+Federated learning
+🤝 Contributing
+Fork the repo
+Create a feature branch
+Commit changes
+Submit PR
+📄 License
 
-```bash
-npm run dev:backend
-```
+MIT License
 
-3. Start frontend in another terminal:
+⚡ Final Note
 
-```bash
-npm run dev:frontend
-```
-
-4. Open the app and sign in with name and email. The main page appears after successful login.
-
-🧹 Just Exploring?
-No problem! If you were just checking things out and don’t need to keep this code:
-
-- Simply delete your Spark.
-- Everything will be cleaned up — no traces left behind.
-
-📄 License For Spark Template Resources 
-
-The Spark Template files and resources from GitHub are licensed under the terms of the MIT license, Copyright GitHub, Inc.
+AegisChain AI is designed as a real-world, scalable system—not a prototype.
+It combines AI autonomy + blockchain trust + real-time intelligence to solve critical global challenges.
