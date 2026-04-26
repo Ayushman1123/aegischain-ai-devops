@@ -17,6 +17,7 @@ import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { SupportChatbot } from '@/components/SupportChatbot'
+import { AuthScreen } from '@/components/AuthScreen'
 import { formatTimestamp } from '@/lib/agents'
 import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
@@ -25,7 +26,7 @@ import type { Agent, Shipment, RiskAnalysis } from '@/types'
 import { toast } from 'sonner'
 
 function App() {
-  const { user, loading: authLoading, authError, logout } = useAuthSession()
+  const { user, loading: authLoading, authError, loginWithProfile, logout } = useAuthSession()
   const {
     agents,
     shipments,
@@ -70,11 +71,11 @@ function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <div className="text-sm text-destructive">
-          {authError || 'Unable to initialize operator session. Ensure backend is running.'}
-        </div>
-      </div>
+      <AuthScreen
+        isAuthenticating={authLoading}
+        authError={authError}
+        onLogin={loginWithProfile}
+      />
     )
   }
 
@@ -123,19 +124,19 @@ function App() {
   }
 
   const handleAssignTask = async () => {
-    if (!selectedAgent || agentTaskPrompt.trim().length < 5) {
-      toast.error('Enter a clear task for the selected agent')
+    if (agentTaskPrompt.trim().length < 5) {
+      toast.error('Enter a clear task for orchestration')
       return
     }
 
     try {
       await assignAgentTask({
-        agentId: selectedAgent.id,
+        agentId: selectedAgent?.id,
         prompt: agentTaskPrompt.trim(),
         shipmentId: selectedShipment?.id,
       })
       setAgentTaskPrompt('')
-      toast.success(`${selectedAgent.name} completed the assigned task`)
+      toast.success(`${selectedAgent?.name || 'Orchestration agents'} completed the assigned task`)
       setShowWorkflow(true)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Task assignment failed')
@@ -420,7 +421,7 @@ function App() {
                 placeholder="Example: Review delays and prepare customer update"
               />
               <Button className="w-full" onClick={() => void handleAssignTask()}>
-                Assign Task To {selectedAgent?.name}
+                Assign Task{selectedAgent?.name ? ` To ${selectedAgent.name}` : ''}
               </Button>
             </div>
           </div>

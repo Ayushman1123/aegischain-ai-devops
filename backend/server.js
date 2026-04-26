@@ -123,7 +123,7 @@ function registerRoutes() {
   app.use('/api/agents', authMiddleware, createAgentRouter(db, { realtime, cloudStore }))
   app.use('/api/risk', authMiddleware, createRiskRouter(db))
   app.use('/api/notifications', authMiddleware, createNotificationRouter(db))
-  app.use('/api/support', authMiddleware, createSupportRouter(db))
+  app.use('/api/support', authMiddleware, createSupportRouter(db, { realtime, cloudStore }))
   app.use('/api/blockchain', authMiddleware, createBlockchainRouter(db, { realtime, cloudStore }))
 
   app.get('/api/dashboard', authMiddleware, asyncHandler(async (req, res) => {

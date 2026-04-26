@@ -97,6 +97,18 @@ export function AuthScreen({ isAuthenticating, authError, onLogin }: AuthScreenP
           <Button type="submit" className="w-full" disabled={isAuthenticating}>
             {isAuthenticating ? 'Signing in...' : 'Continue'}
           </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={isAuthenticating}
+            onClick={() => {
+              void onLogin('Demo Operator', 'demo.operator@gmail.com')
+            }}
+          >
+            Continue As Demo User
+          </Button>
         </form>
       </Card>
     </div>

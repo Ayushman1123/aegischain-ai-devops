@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import { v4 as uuidv4 } from 'uuid'
-import { DEFAULT_SHIPMENT_BLUEPRINTS } from './fixtures.js'
+import { CITY_COORDINATES, DEFAULT_SHIPMENT_BLUEPRINTS } from './fixtures.js'
 import {
   buildAnalysisForShipment,
   buildShipmentRecord,
@@ -31,6 +31,187 @@ function toWorkflowResponse(row) {
 function buildMockBlockchainHash(seed) {
   const raw = Buffer.from(`${seed}:${Date.now()}:${Math.random()}`)
   return `0x${raw.toString('hex').slice(0, 64).padEnd(64, '0')}`
+}
+
+function inferTaskPriority(prompt = '') {
+  const normalized = prompt.toLowerCase()
+  if (/(urgent|asap|immediate|critical|emergency|blocker)/.test(normalized)) return 'high'
+  if (/(low|whenever|later|non-urgent|non urgent)/.test(normalized)) return 'low'
+  return 'medium'
+}
+
+function extractShipmentId(prompt = '') {
+  const match = prompt.match(/(SHP-[A-Za-z0-9-]+)/i)
+  return match ? match[1] : null
+}
+
+function parseShipmentCreationPrompt(prompt = '') {
+  const match = prompt.match(/(?:create|add|new)\s+(?:a\s+)?shipment(?:\s+named\s+(.+?))?\s+from\s+(.+?)\s+to\s+(.+?)(?:\.|$)/i)
+  if (!match) {
+    return null
+  }
+
+  const name = match[1]?.trim() || `Custom Shipment ${new Date().toISOString().slice(11, 19)}`
+  const origin = match[2].trim()
+  const destination = match[3].trim()
+
+  return { name, origin, destination }
+}
+
+function isPromptActionable(prompt = '') {
+  return /(analy|assess|scan|simulate|refresh|update tracking|reroute|route|create|add|new shipment)/i.test(prompt)
+}
+
+async function executeTaskFromPrompt(db, userId, prompt, preferredShipmentId, options = {}) {
+  const normalized = prompt.toLowerCase()
+  const mentionedShipmentId = extractShipmentId(prompt)
+  const targetShipmentId = preferredShipmentId || mentionedShipmentId
+
+  if (/(create|add|new)\s+(?:a\s+)?shipment/i.test(normalized)) {
+    const parsed = parseShipmentCreationPrompt(prompt)
+    if (!parsed) {
+      return {
+        kind: 'create_shipment',
+        performed: false,
+        summary: 'Unable to create shipment: use "create shipment named <name> from <origin> to <destination>".',
+      }
+    }
+
+    if (!CITY_COORDINATES[parsed.origin] || !CITY_COORDINATES[parsed.destination]) {
+      return {
+        kind: 'create_shipment',
+        performed: false,
+        summary: `Unable to create shipment: origin/destination must match a supported city (got "${parsed.origin}" -> "${parsed.destination}").`,
+      }
+    }
+
+    const now = getCurrentTimestamp()
+    const shipment = buildShipmentRecord(userId, {
+      id: `SHP-${Date.now()}-${uuidv4().slice(0, 6)}`,
+      name: parsed.name,
+      origin: parsed.origin,
+      destination: parsed.destination,
+      status: 'scheduled',
+      riskScore: 25,
+      riskLevel: 'low',
+      progress: 0,
+      lastUpdate: 'Shipment created from user command.',
+      averageSpeed: 78,
+    }, now)
+
+    await db.run(
+      `INSERT INTO shipments (
+        id, userId, name, origin, destination, originLat, originLng, destinationLat, destinationLng,
+        currentLat, currentLng, status, riskScore, riskLevel, eta, etaTimestamp, progress, lastUpdate,
+        estimatedDistance, remainingDistance, averageSpeed, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shipment.id, shipment.userId, shipment.name, shipment.origin, shipment.destination,
+        shipment.originLat, shipment.originLng, shipment.destinationLat, shipment.destinationLng,
+        shipment.currentLat, shipment.currentLng, shipment.status, shipment.riskScore, shipment.riskLevel,
+        shipment.eta, shipment.etaTimestamp, shipment.progress, shipment.lastUpdate,
+        shipment.estimatedDistance, shipment.remainingDistance, shipment.averageSpeed,
+        shipment.createdAt, shipment.updatedAt,
+      ]
+    )
+
+    await db.run(
+      `INSERT INTO location_history (id, shipmentId, latitude, longitude, speed, heading, timestamp, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuidv4(), shipment.id, shipment.currentLat, shipment.currentLng, shipment.averageSpeed, 0, now, now]
+    )
+
+    return {
+      kind: 'create_shipment',
+      performed: true,
+      shipmentId: shipment.id,
+      summary: `Created shipment ${shipment.id} (${shipment.name}) from ${shipment.origin} to ${shipment.destination}.`,
+    }
+  }
+
+  if (/(analy|assess|scan).*(all|every).*(shipment|route)|analy[sz]e all/i.test(normalized)) {
+    const shipments = await db.all('SELECT * FROM shipments WHERE userId = ? ORDER BY createdAt DESC', [userId])
+    if (shipments.length === 0) {
+      return {
+        kind: 'analyze_all',
+        performed: false,
+        summary: 'No shipments found to analyze.',
+      }
+    }
+
+    const analyses = []
+    const workflowSteps = []
+    for (const shipment of shipments) {
+      const result = await createAnalysisAndWorkflow(db, userId, shipment)
+      analyses.push(result.analysis)
+      workflowSteps.push(...result.workflowSteps)
+    }
+
+    options.realtime?.emitToUser(userId, 'workflow.updated', { analyses, workflowSteps })
+
+    return {
+      kind: 'analyze_all',
+      performed: true,
+      analyses,
+      workflowSteps,
+      summary: `Completed analysis for ${analyses.length} shipments.`,
+    }
+  }
+
+  if (/(analy|assess|scan|risk)/i.test(normalized)) {
+    let shipment = null
+    if (targetShipmentId) {
+      shipment = await db.get('SELECT * FROM shipments WHERE id = ? AND userId = ?', [targetShipmentId, userId])
+    }
+
+    if (!shipment) {
+      shipment = await db.get('SELECT * FROM shipments WHERE userId = ? ORDER BY riskScore DESC, createdAt DESC LIMIT 1', [userId])
+    }
+
+    if (!shipment) {
+      return {
+        kind: 'analyze_one',
+        performed: false,
+        summary: 'No shipments found to analyze.',
+      }
+    }
+
+    const result = await createAnalysisAndWorkflow(db, userId, shipment)
+    options.realtime?.emitToUser(userId, 'workflow.updated', {
+      analysis: result.analysis,
+      workflowSteps: result.workflowSteps,
+    })
+
+    return {
+      kind: 'analyze_one',
+      performed: true,
+      shipmentId: shipment.id,
+      analysis: result.analysis,
+      workflowSteps: result.workflowSteps,
+      summary: `Completed risk analysis for ${shipment.name} (${shipment.id}) with ${result.analysis.riskLevel} risk.`,
+    }
+  }
+
+  if (/(simulate|refresh|update tracking|sync tracking|track update|reroute|route update)/i.test(normalized)) {
+    const result = await simulateShipmentsForUser(db, userId, options)
+    options.realtime?.emitToUser(userId, 'tracking.updated', {
+      shipments: result.shipments,
+      notifications: result.notifications,
+      source: 'task',
+    })
+
+    return {
+      kind: 'simulate_tracking',
+      performed: true,
+      summary: `Tracking simulation completed for ${result.shipments.length} shipments.`,
+    }
+  }
+
+  return {
+    kind: 'generic',
+    performed: false,
+    summary: 'Captured request and routed it to the selected agent workflow.',
+  }
 }
 
 async function seedUserShipments(db, userId) {
@@ -543,11 +724,13 @@ export function createAgentRouter(db, options = {}) {
     const taskId = uuidv4()
     const now = getCurrentTimestamp()
     const title = prompt.trim().slice(0, 60)
+    const priority = inferTaskPriority(prompt)
+    const execution = await executeTaskFromPrompt(db, req.user.id, prompt.trim(), shipmentId || null, options)
 
     await db.run(
       `INSERT INTO agent_tasks (id, userId, shipmentId, title, description, status, priority, assignedAgentId, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [taskId, req.user.id, shipmentId || null, title, prompt.trim(), 'completed', 'medium', resolvedAgentId, now, now]
+      [taskId, req.user.id, execution.shipmentId || shipmentId || null, title, prompt.trim(), 'completed', priority, resolvedAgentId, now, now]
     )
 
     const agent = await db.get('SELECT id, name FROM agents WHERE id = ?', [resolvedAgentId])
@@ -559,7 +742,7 @@ export function createAgentRouter(db, options = {}) {
         agentName: 'Planner Agent',
         action: 'Route user request to best-fit specialist',
         input: { prompt },
-        output: { assignedAgentId: resolvedAgentId },
+        output: { assignedAgentId: resolvedAgentId, priority, intent: execution.kind },
         status: 'completed',
         startTime: now,
         endTime: now,
@@ -572,7 +755,11 @@ export function createAgentRouter(db, options = {}) {
         agentName: agent?.name || resolvedAgentId,
         action: 'Complete assigned task',
         input: { prompt, shipmentId: shipmentId || null },
-        output: { result: `${agent?.name || resolvedAgentId} completed: ${prompt.trim()}` },
+        output: {
+          result: execution.summary,
+          kind: execution.kind,
+          performed: execution.performed,
+        },
         status: 'completed',
         startTime: now,
         endTime: now,
@@ -585,7 +772,7 @@ export function createAgentRouter(db, options = {}) {
         agentName: 'Executor Agent',
         action: 'Persist completion state',
         input: { taskId },
-        output: { status: 'saved' },
+        output: { status: 'saved', execution: execution.kind },
         status: 'completed',
         startTime: now,
         endTime: now,
@@ -601,7 +788,7 @@ export function createAgentRouter(db, options = {}) {
       )
     }
 
-    await db.run('UPDATE agents SET status = ?, lastActivity = ?, updatedAt = ? WHERE id = ?', ['active', `Completed user task: ${title}`, now, resolvedAgentId])
+    await db.run('UPDATE agents SET status = ?, lastActivity = ?, updatedAt = ? WHERE id = ?', ['active', `Completed user task: ${execution.summary}`, now, resolvedAgentId])
 
     const task = await db.get('SELECT id, title, description, status, assignedAgentId, shipmentId FROM agent_tasks WHERE id = ?', [taskId])
     options.realtime?.emitToUser(req.user.id, 'workflow.updated', {
@@ -834,7 +1021,7 @@ export function createNotificationRouter(db) {
   return router
 }
 
-export function createSupportRouter(db) {
+export function createSupportRouter(db, options = {}) {
   const router = Router()
 
   router.get('/chat', asyncHandler(async (req, res) => {
@@ -867,10 +1054,18 @@ export function createSupportRouter(db) {
       [userMessage.id, req.user.id, userMessage.role, userMessage.message, userMessage.agentId, userMessage.createdAt]
     )
 
+    const execution = isPromptActionable(message)
+      ? await executeTaskFromPrompt(db, req.user.id, message.trim(), null, options)
+      : null
+
+    const replyMessage = execution?.performed
+      ? `${execution.summary} I have synchronized the workflow and updated backend state.`
+      : buildSupportResponse(message, { shipmentCount: shipments.length, criticalCount })
+
     const reply = {
       id: uuidv4(),
       role: 'assistant',
-      message: buildSupportResponse(message, { shipmentCount: shipments.length, criticalCount }),
+      message: replyMessage,
       agentId: 'communication',
       createdAt: getCurrentTimestamp(),
     }
