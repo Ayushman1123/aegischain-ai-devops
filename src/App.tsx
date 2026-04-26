@@ -6,21 +6,21 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AgentCard } from '@/components/AgentCard'
 import { ShipmentCard } from '@/components/ShipmentCard'
 import { RiskGauge } from '@/components/RiskGauge'
+import { TrackingMap } from '@/components/TrackingMap'
 import { AGENTS, SAMPLE_SHIPMENTS, formatTimestamp } from '@/lib/agents'
-import { Brain, Lightning, ChartLine, Bell, Cube } from '@phosphor-icons/react'
+import { formatETA } from '@/lib/tracking'
+import { useRealTimeTracking } from '@/hooks/use-real-time-tracking'
+import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise } from '@phosphor-icons/react'
 import type { Agent, Shipment, RiskAnalysis } from '@/types'
 import { toast } from 'sonner'
 
 function App() {
   const [agents] = useState<Agent[]>(AGENTS)
-  const [shipments] = useState<Shipment[]>(SAMPLE_SHIPMENTS)
+  const { shipments, isTracking, toggleTracking, manualUpdate } = useRealTimeTracking(SAMPLE_SHIPMENTS, 3000)
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -121,10 +121,42 @@ Return ONLY valid JSON in this exact format:
                   <span className="font-bold text-destructive">{criticalShipments.length}</span>
                 </div>
               </div>
-              <Button size="sm" className="gap-2">
-                <Bell size={16} weight="duotone" />
-                Alerts
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={isTracking ? "default" : "outline"}
+                  className="gap-2"
+                  onClick={toggleTracking}
+                >
+                  {isTracking ? (
+                    <>
+                      <PauseCircle size={16} weight="duotone" />
+                      Pause
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircle size={16} weight="duotone" />
+                      Resume
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => {
+                    manualUpdate()
+                    toast.success('Locations updated')
+                  }}
+                >
+                  <ArrowsClockwise size={16} weight="duotone" />
+                  Refresh
+                </Button>
+                <Button size="sm" variant="outline" className="gap-2">
+                  <Bell size={16} weight="duotone" />
+                  Alerts
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -176,6 +208,12 @@ Return ONLY valid JSON in this exact format:
                 </div>
               </Card>
             </div>
+
+            <TrackingMap
+              shipments={shipments}
+              selectedShipment={selectedShipment}
+              onSelectShipment={setSelectedShipment}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="lg:col-span-2 p-6">

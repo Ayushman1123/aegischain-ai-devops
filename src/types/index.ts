@@ -13,17 +13,37 @@ export interface Agent {
   description: string
 }
 
+export interface Coordinates {
+  lat: number
+  lng: number
+}
+
+export interface LocationUpdate {
+  timestamp: string
+  location: Coordinates
+  speed: number
+  heading: number
+}
+
 export interface Shipment {
   id: string
   name: string
   origin: string
   destination: string
+  originCoords: Coordinates
+  destinationCoords: Coordinates
+  currentLocation: Coordinates
   status: ShipmentStatus
   riskScore: number
   riskLevel: RiskLevel
   eta: string
+  etaTimestamp: number
   progress: number
   lastUpdate: string
+  locationHistory: LocationUpdate[]
+  estimatedDistance: number
+  remainingDistance: number
+  averageSpeed: number
 }
 
 export interface AgentActivity {

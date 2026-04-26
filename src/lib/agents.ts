@@ -1,4 +1,5 @@
 import type { Agent, Shipment, AgentActivity, RiskAnalysis, CrisisEvent, RiskLevel, ShipmentStatus, AgentStatus } from '@/types'
+import { CITY_COORDINATES, interpolatePosition, calculateDistance, calculateETA, generateLocationHistory } from '@/lib/tracking'
 
 export const AGENTS: Agent[] = [
   {
@@ -67,67 +68,109 @@ export const AGENTS: Agent[] = [
   }
 ]
 
-export const SAMPLE_SHIPMENTS: Shipment[] = [
-  {
-    id: 'SHP-2024-001',
-    name: 'Medical Supplies - Chicago',
-    origin: 'New York, NY',
-    destination: 'Chicago, IL',
-    status: 'in-transit',
-    riskScore: 32,
-    riskLevel: 'low',
-    eta: '2 hours',
-    progress: 67,
-    lastUpdate: 'On schedule, no delays detected'
-  },
-  {
-    id: 'SHP-2024-002',
-    name: 'Electronics - Seattle',
-    origin: 'Los Angeles, CA',
-    destination: 'Seattle, WA',
-    status: 'delayed',
-    riskScore: 68,
-    riskLevel: 'medium',
-    eta: '6 hours (delayed 2h)',
-    progress: 45,
-    lastUpdate: 'Weather delay in Portland area'
-  },
-  {
-    id: 'SHP-2024-003',
-    name: 'Perishable Goods - Miami',
-    origin: 'Atlanta, GA',
-    destination: 'Miami, FL',
-    status: 'crisis',
-    riskScore: 89,
-    riskLevel: 'critical',
-    eta: 'Unknown',
-    progress: 58,
-    lastUpdate: 'Refrigeration system failure detected'
-  },
-  {
-    id: 'SHP-2024-004',
-    name: 'Manufacturing Parts - Detroit',
-    origin: 'Cleveland, OH',
-    destination: 'Detroit, MI',
-    status: 'in-transit',
-    riskScore: 45,
-    riskLevel: 'medium',
-    eta: '3.5 hours',
-    progress: 72,
-    lastUpdate: 'Minor traffic delays on I-75'
-  },
-  {
-    id: 'SHP-2024-005',
-    name: 'Pharmaceuticals - Boston',
-    origin: 'Philadelphia, PA',
-    destination: 'Boston, MA',
-    status: 'in-transit',
-    riskScore: 28,
-    riskLevel: 'low',
-    eta: '1.5 hours',
-    progress: 81,
-    lastUpdate: 'Ahead of schedule'
+function createShipment(
+  id: string,
+  name: string,
+  origin: string,
+  destination: string,
+  status: ShipmentStatus,
+  riskScore: number,
+  riskLevel: RiskLevel,
+  progress: number,
+  lastUpdate: string,
+  averageSpeed: number = 80
+): Shipment {
+  const originCoords = CITY_COORDINATES[origin]
+  const destinationCoords = CITY_COORDINATES[destination]
+  const currentLocation = interpolatePosition(originCoords, destinationCoords, progress)
+  const estimatedDistance = calculateDistance(originCoords, destinationCoords)
+  const remainingDistance = calculateDistance(currentLocation, destinationCoords)
+  const { eta, etaTimestamp } = calculateETA(currentLocation, destinationCoords, averageSpeed)
+  const locationHistory = generateLocationHistory(originCoords, currentLocation, progress)
+
+  return {
+    id,
+    name,
+    origin,
+    destination,
+    originCoords,
+    destinationCoords,
+    currentLocation,
+    status,
+    riskScore,
+    riskLevel,
+    eta,
+    etaTimestamp,
+    progress,
+    lastUpdate,
+    locationHistory,
+    estimatedDistance,
+    remainingDistance,
+    averageSpeed,
   }
+}
+
+export const SAMPLE_SHIPMENTS: Shipment[] = [
+  createShipment(
+    'SHP-2024-001',
+    'Medical Supplies - Chicago',
+    'New York, NY',
+    'Chicago, IL',
+    'in-transit',
+    32,
+    'low',
+    67,
+    'On schedule, no delays detected',
+    85
+  ),
+  createShipment(
+    'SHP-2024-002',
+    'Electronics - Seattle',
+    'Los Angeles, CA',
+    'Seattle, WA',
+    'delayed',
+    68,
+    'medium',
+    45,
+    'Weather delay in Portland area',
+    65
+  ),
+  createShipment(
+    'SHP-2024-003',
+    'Perishable Goods - Miami',
+    'Atlanta, GA',
+    'Miami, FL',
+    'crisis',
+    89,
+    'critical',
+    58,
+    'Refrigeration system failure detected',
+    40
+  ),
+  createShipment(
+    'SHP-2024-004',
+    'Manufacturing Parts - Detroit',
+    'Cleveland, OH',
+    'Detroit, MI',
+    'in-transit',
+    45,
+    'medium',
+    72,
+    'Minor traffic delays on I-75',
+    75
+  ),
+  createShipment(
+    'SHP-2024-005',
+    'Pharmaceuticals - Boston',
+    'Philadelphia, PA',
+    'Boston, MA',
+    'in-transit',
+    28,
+    'low',
+    81,
+    'Ahead of schedule',
+    90
+  ),
 ]
 
 export function getRiskLevelColor(level: RiskLevel): string {
