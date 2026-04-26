@@ -1,0 +1,21 @@
+{
+  "name": "aegischain-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AegisChain AI Supply Chain Backend",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "migrate": "node migrations/run.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {}
+}
