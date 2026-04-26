@@ -15,6 +15,10 @@ export function useAuthSession() {
         if (mounted) {
           setUser(sessionUser)
         }
+      } catch (error) {
+        if (mounted) {
+          setAuthError(error instanceof Error ? error.message : 'Unable to restore session')
+        }
       } finally {
         if (mounted) {
           setLoading(false)

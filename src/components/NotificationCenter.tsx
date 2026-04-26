@@ -2,19 +2,19 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Bell, CheckCircle, Warning, Info, Lightning, Cloud, Car, Clock, X } from '@phosphor-icons/react'
+import { Bell, CheckCircle, Warning, Lightning, Cloud, Car, Clock, X } from '@phosphor-icons/react'
 import type { NotificationAlert } from '@/types'
 import { cn } from '@/lib/utils'
-import { useKV } from '@github/spark/hooks'
 
 interface NotificationCenterProps {
+  notifications: NotificationAlert[]
   onClose?: () => void
+  onMarkAsRead: (id: string) => void | Promise<void>
+  onMarkAllRead: () => void | Promise<void>
 }
 
-export function NotificationCenter({ onClose }: NotificationCenterProps) {
-  const [notifications, setNotifications] = useKV<NotificationAlert[]>('notification-alerts', [])
-
-  const unreadCount = (notifications || []).filter(n => !n.read).length
+export function NotificationCenter({ notifications, onClose, onMarkAsRead, onMarkAllRead }: NotificationCenterProps) {
+  const unreadCount = notifications.filter((notification) => !notification.read).length
 
   const getIcon = (type: NotificationAlert['type']) => {
     switch (type) {
@@ -43,24 +43,6 @@ export function NotificationCenter({ onClose }: NotificationCenterProps) {
     return colors[severity]
   }
 
-  const handleMarkAsRead = (id: string) => {
-    setNotifications((current) => 
-      (current || []).map(n => n.id === id ? { ...n, read: true } : n)
-    )
-  }
-
-  const handleDismiss = (id: string) => {
-    setNotifications((current) => 
-      (current || []).filter(n => n.id !== id)
-    )
-  }
-
-  const handleMarkAllRead = () => {
-    setNotifications((current) => 
-      (current || []).map(n => ({ ...n, read: true }))
-    )
-  }
-
   return (
     <Card className="p-6 max-w-2xl mx-auto">
       <div className="flex items-start justify-between mb-6">
@@ -75,7 +57,7 @@ export function NotificationCenter({ onClose }: NotificationCenterProps) {
         </div>
         <div className="flex items-center gap-2">
           {unreadCount > 0 && (
-            <Button variant="ghost" size="sm" onClick={handleMarkAllRead}>
+            <Button variant="ghost" size="sm" onClick={() => void onMarkAllRead()}>
               Mark all read
             </Button>
           )}
@@ -89,13 +71,13 @@ export function NotificationCenter({ onClose }: NotificationCenterProps) {
 
       <ScrollArea className="h-[500px] pr-4">
         <div className="space-y-3">
-          {(notifications || []).length === 0 ? (
+          {notifications.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Bell size={48} className="mx-auto mb-3 opacity-50" weight="duotone" />
               <p>No notifications</p>
             </div>
           ) : (
-            (notifications || []).map((notification) => (
+            notifications.map((notification) => (
               <Card
                 key={notification.id}
                 className={cn(
@@ -138,7 +120,7 @@ export function NotificationCenter({ onClose }: NotificationCenterProps) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleMarkAsRead(notification.id)}
+                            onClick={() => void onMarkAsRead(notification.id)}
                             className="h-7 text-xs"
                           >
                             <CheckCircle size={14} className="mr-1" />
@@ -146,14 +128,16 @@ export function NotificationCenter({ onClose }: NotificationCenterProps) {
                           </Button>
                         )}
 
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDismiss(notification.id)}
-                          className="h-7 w-7 p-0"
-                        >
-                          <X size={14} />
-                        </Button>
+                        {onClose && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={onClose}
+                            className="h-7 w-7 p-0"
+                          >
+                            <X size={14} />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

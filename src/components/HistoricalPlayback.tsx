@@ -5,43 +5,74 @@ import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { PlayCircle, PauseCircle, ArrowCounterClockwise, FastForward } from '@phosphor-icons/react'
 import type { Shipment, HistoricalSnapshot } from '@/types'
-import { formatDistance, formatSpeed } from '@/lib/tracking'
+import { formatSpeed } from '@/lib/tracking'
 import { getRiskLevelColor, getShipmentStatusBadge } from '@/lib/agents'
 import { cn } from '@/lib/utils'
+import { fetchShipmentHistory, type ShipmentHistoryTimelineItem } from '@/lib/api'
 
 interface HistoricalPlaybackProps {
   shipment: Shipment
   onClose?: () => void
 }
 
-function generateHistoricalSnapshots(shipment: Shipment): HistoricalSnapshot[] {
-  const snapshots: HistoricalSnapshot[] = []
-  const steps = shipment.locationHistory.length
-  
-  shipment.locationHistory.forEach((update, index) => {
-    const progressAtTime = (index / Math.max(1, steps - 1)) * shipment.progress
-    snapshots.push({
-      timestamp: update.timestamp,
-      location: update.location,
-      speed: update.speed,
-      riskScore: shipment.riskScore - Math.random() * 10,
-      status: progressAtTime < 30 ? 'scheduled' : progressAtTime < 90 ? 'in-transit' : shipment.status,
-      eta: `${Math.round((100 - progressAtTime) * 2)}h ${Math.round(Math.random() * 60)}m`,
-      progress: progressAtTime,
-    })
-  })
-  
-  return snapshots
-}
-
 export function HistoricalPlayback({ shipment, onClose }: HistoricalPlaybackProps) {
-  const [snapshots] = useState<HistoricalSnapshot[]>(() => generateHistoricalSnapshots(shipment))
+  const [snapshots, setSnapshots] = useState<HistoricalSnapshot[]>([])
+  const [timeline, setTimeline] = useState<ShipmentHistoryTimelineItem[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [currentIndex, setCurrentIndex] = useState(snapshots.length - 1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const intervalRef = useRef<number | null>(null)
 
-  const currentSnapshot = snapshots[currentIndex] || snapshots[snapshots.length - 1]
+  const currentSnapshot = snapshots[currentIndex] || snapshots[snapshots.length - 1] || {
+    timestamp: new Date().toISOString(),
+    location: shipment.currentLocation,
+    speed: shipment.averageSpeed,
+    riskScore: shipment.riskScore,
+    status: shipment.status,
+    eta: shipment.eta,
+    progress: shipment.progress,
+  }
+
+  useEffect(() => {
+    let active = true
+    setIsLoading(true)
+
+    void fetchShipmentHistory(shipment.id)
+      .then((response) => {
+        if (!active) {
+          return
+        }
+        setSnapshots(response.snapshots)
+        setTimeline(response.timeline)
+        setCurrentIndex(Math.max(0, response.snapshots.length - 1))
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        setSnapshots(
+          shipment.locationHistory.map((update, index) => ({
+            timestamp: update.timestamp,
+            location: update.location,
+            speed: update.speed,
+            riskScore: shipment.riskScore,
+            status: index === shipment.locationHistory.length - 1 ? shipment.status : 'in-transit',
+            eta: shipment.eta,
+            progress: (index / Math.max(1, shipment.locationHistory.length - 1)) * shipment.progress,
+          }))
+        )
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [shipment])
 
   useEffect(() => {
     if (!isPlaying) {
@@ -74,6 +105,14 @@ export function HistoricalPlayback({ shipment, onClose }: HistoricalPlaybackProp
       setCurrentIndex(0)
     }
     setIsPlaying(!isPlaying)
+  }
+
+  if (isLoading) {
+    return (
+      <Card className="p-6 space-y-4">
+        <div className="text-sm text-muted-foreground">Loading persisted shipment timeline...</div>
+      </Card>
+    )
   }
 
   const handleReset = () => {
@@ -198,6 +237,20 @@ export function HistoricalPlayback({ shipment, onClose }: HistoricalPlaybackProp
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="max-h-40 overflow-y-auto rounded-lg border border-border p-3 space-y-2">
+        <div className="text-xs text-muted-foreground">Timeline Events</div>
+        {timeline.length === 0 ? (
+          <div className="text-xs text-muted-foreground">No timeline events available.</div>
+        ) : (
+          timeline.slice(-20).reverse().map((event) => (
+            <div key={event.id} className="text-xs">
+              <span className="font-medium">{new Date(event.timestamp).toLocaleString()}</span>
+              <span className="text-muted-foreground"> - {event.title}: {event.details}</span>
+            </div>
+          ))
+        )}
       </div>
     </Card>
   )

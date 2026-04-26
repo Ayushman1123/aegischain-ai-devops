@@ -1,5 +1,5 @@
 import sqlite3 from 'sqlite3'
-import { dirname, join } from 'path'
+import { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync, mkdirSync } from 'fs'
 
@@ -24,9 +24,12 @@ class Database {
           reject(err)
           return
         }
-        this.createTables()
-          .then(resolve)
-          .catch(reject)
+        
+        this.db.serialize(() => {
+          this.createTables()
+            .then(resolve)
+            .catch(reject)
+        })
       })
     })
   }
@@ -128,12 +131,34 @@ class Database {
 
         `CREATE TABLE IF NOT EXISTS blockchain_events (
           id TEXT PRIMARY KEY,
+          userId TEXT,
+          shipmentId TEXT,
           eventType TEXT NOT NULL,
           data TEXT,
           hash TEXT,
           verified INTEGER,
           timestamp TEXT NOT NULL,
-          createdAt TEXT NOT NULL
+          createdAt TEXT NOT NULL,
+          FOREIGN KEY(userId) REFERENCES users(id),
+          FOREIGN KEY(shipmentId) REFERENCES shipments(id)
+        )`,
+
+        `CREATE TABLE IF NOT EXISTS payment_transactions (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          shipmentId TEXT NOT NULL,
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL,
+          status TEXT NOT NULL,
+          blockchainHash TEXT,
+          senderAddress TEXT,
+          recipientAddress TEXT,
+          gasUsed INTEGER,
+          timestamp TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY(userId) REFERENCES users(id),
+          FOREIGN KEY(shipmentId) REFERENCES shipments(id)
         )`,
 
         `CREATE TABLE IF NOT EXISTS location_history (
@@ -148,14 +173,63 @@ class Database {
           FOREIGN KEY(shipmentId) REFERENCES shipments(id)
         )`,
 
+        `CREATE TABLE IF NOT EXISTS agent_tasks (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          shipmentId TEXT,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          status TEXT NOT NULL,
+          priority TEXT NOT NULL,
+          assignedAgentId TEXT NOT NULL,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY(userId) REFERENCES users(id),
+          FOREIGN KEY(shipmentId) REFERENCES shipments(id)
+        )`,
+
+        `CREATE TABLE IF NOT EXISTS workflow_steps (
+          id TEXT PRIMARY KEY,
+          taskId TEXT NOT NULL,
+          userId TEXT NOT NULL,
+          agentId TEXT NOT NULL,
+          agentName TEXT NOT NULL,
+          action TEXT NOT NULL,
+          input TEXT,
+          output TEXT,
+          status TEXT NOT NULL,
+          startTime TEXT NOT NULL,
+          endTime TEXT,
+          duration INTEGER,
+          FOREIGN KEY(taskId) REFERENCES agent_tasks(id),
+          FOREIGN KEY(userId) REFERENCES users(id)
+        )`,
+
+        `CREATE TABLE IF NOT EXISTS chat_messages (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          role TEXT NOT NULL,
+          message TEXT NOT NULL,
+          agentId TEXT,
+          createdAt TEXT NOT NULL,
+          FOREIGN KEY(userId) REFERENCES users(id)
+        )`,
+
         `CREATE INDEX IF NOT EXISTS idx_shipments_userId ON shipments(userId)`,
         `CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments(status)`,
         `CREATE INDEX IF NOT EXISTS idx_notifications_userId ON notifications(userId)`,
         `CREATE INDEX IF NOT EXISTS idx_location_history_shipmentId ON location_history(shipmentId)`,
+        `CREATE INDEX IF NOT EXISTS idx_agent_tasks_userId ON agent_tasks(userId)`,
+        `CREATE INDEX IF NOT EXISTS idx_workflow_steps_userId ON workflow_steps(userId)`,
+        `CREATE INDEX IF NOT EXISTS idx_chat_messages_userId ON chat_messages(userId)`,
+        `CREATE INDEX IF NOT EXISTS idx_blockchain_events_userId ON blockchain_events(userId)`,
+        `CREATE INDEX IF NOT EXISTS idx_payment_transactions_userId ON payment_transactions(userId)`,
+        `CREATE INDEX IF NOT EXISTS idx_payment_transactions_shipmentId ON payment_transactions(shipmentId)`,
       ]
 
       let completed = 0
-      queries.forEach((query) => {
+      
+      queries.forEach((query, index) => {
         this.db.run(query, (err) => {
           if (err) {
             reject(err)

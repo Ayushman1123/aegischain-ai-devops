@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AgentCard } from '@/components/AgentCard'
 import { ShipmentCard } from '@/components/ShipmentCard'
@@ -15,57 +16,50 @@ import { HistoricalPlayback } from '@/components/HistoricalPlayback'
 import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
+import { SupportChatbot } from '@/components/SupportChatbot'
 import { AuthScreen } from '@/components/AuthScreen'
-import { AGENTS, SAMPLE_SHIPMENTS, formatTimestamp } from '@/lib/agents'
-import { formatETA } from '@/lib/tracking'
-import { generateRiskAnalysis, getActiveLlmProviderLabel } from '@/lib/llm'
-import { useRealTimeTracking } from '@/hooks/use-real-time-tracking'
+import { formatTimestamp } from '@/lib/agents'
+import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
-import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise, ClockCounterClockwise, CurrencyDollar, Cloud, Car } from '@phosphor-icons/react'
-import type { Agent, Shipment, RiskAnalysis, AgentWorkflowStep, NotificationAlert, WeatherData, TrafficData } from '@/types'
+import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise, ClockCounterClockwise, CurrencyDollar } from '@phosphor-icons/react'
+import type { Agent, Shipment, RiskAnalysis } from '@/types'
 import { toast } from 'sonner'
-import { useKV } from '@github/spark/hooks'
 
 function App() {
   const { user, loading: authLoading, authError, loginWithProfile, logout } = useAuthSession()
-  const [agents] = useState<Agent[]>(AGENTS)
-  const { shipments, isTracking, toggleTracking, manualUpdate } = useRealTimeTracking(SAMPLE_SHIPMENTS, 3000)
+  const {
+    agents,
+    shipments,
+    notifications,
+    workflowSteps,
+    chatMessages,
+    loading: controlTowerLoading,
+    isTracking,
+    toggleTracking,
+    manualRefresh,
+    analyzeShipment,
+    analyzeAllShipments,
+    assignAgentTask,
+    sendSupportMessage,
+    markNotificationRead,
+    markAllNotificationsRead,
+  } = useControlTowerData(Boolean(user))
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isAnalyzeAllRunning, setIsAnalyzeAllRunning] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<RiskAnalysis | null>(null)
   const [showAnalysisDialog, setShowAnalysisDialog] = useState(false)
   const [showHistoricalPlayback, setShowHistoricalPlayback] = useState(false)
   const [showBlockchainPayment, setShowBlockchainPayment] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showWorkflow, setShowWorkflow] = useState(false)
-  const [notifications, setNotifications] = useKV<NotificationAlert[]>('notification-alerts', [])
-  const [workflowSteps, setWorkflowSteps] = useState<AgentWorkflowStep[]>([])
+  const [agentTaskPrompt, setAgentTaskPrompt] = useState('')
 
-  const activeAgents = agents.filter(a => a.status === 'active' || a.status === 'processing')
-  const criticalShipments = shipments.filter(s => s.riskLevel === 'critical' || s.status === 'crisis')
-  const avgRisk = Math.round(shipments.reduce((sum, s) => sum + s.riskScore, 0) / shipments.length)
-  const unreadNotifications = (notifications || []).filter(n => !n.read).length
-
-  useEffect(() => {
-    shipments.forEach(shipment => {
-      const prevShipment = SAMPLE_SHIPMENTS.find(s => s.id === shipment.id)
-      if (prevShipment && shipment.eta !== prevShipment.eta) {
-        const notification: NotificationAlert = {
-          id: `notif-${Date.now()}-${shipment.id}`,
-          type: 'eta_update',
-          shipmentId: shipment.id,
-          title: 'ETA Updated',
-          message: `${shipment.name} ETA changed to ${shipment.eta}`,
-          severity: 'info',
-          timestamp: new Date().toISOString(),
-          read: false,
-          actionRequired: false,
-        }
-        setNotifications((current) => [notification, ...(current || [])].slice(0, 50))
-      }
-    })
-  }, [shipments, setNotifications])
+  const activeAgents = agents.filter((agent) => agent.status === 'active' || agent.status === 'processing')
+  const criticalShipments = shipments.filter((shipment) => shipment.riskLevel === 'critical' || shipment.status === 'crisis')
+  const avgRisk = shipments.length > 0 ? Math.round(shipments.reduce((sum, shipment) => sum + shipment.riskScore, 0) / shipments.length) : 0
+  const unreadNotifications = notifications.filter((notification) => !notification.read).length
 
   if (authLoading && !user) {
     return (
@@ -85,62 +79,67 @@ function App() {
     )
   }
 
+  if (user && controlTowerLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="text-sm text-muted-foreground">Loading control tower...</div>
+      </div>
+    )
+  }
+
   const handleAnalyzeShipment = async (shipment: Shipment) => {
     setIsAnalyzing(true)
     setShowAnalysisDialog(true)
-    
+
     try {
-      const prompt = (window.spark.llmPrompt as any)`You are a supply chain risk analysis AI agent. Analyze the following shipment and provide a detailed risk assessment.
-
-Shipment Details:
-- ID: ${shipment.id}
-- Name: ${shipment.name}
-- Route: ${shipment.origin} → ${shipment.destination}
-- Current Status: ${shipment.status}
-- Current Risk Score: ${shipment.riskScore}/100
-- Progress: ${shipment.progress}%
-- ETA: ${shipment.eta}
-- Last Update: ${shipment.lastUpdate}
-
-Provide a comprehensive risk analysis including:
-1. 3-5 specific risk factors with severity levels (low/medium/high/critical)
-2. 3-5 actionable recommendations to mitigate risks
-3. Overall assessment summary
-
-Return ONLY valid JSON in this exact format:
-{
-  "riskFactors": [
-    {"category": "factor name", "severity": "low|medium|high|critical", "description": "detailed explanation", "impact": 1-10}
-  ],
-  "recommendations": ["recommendation 1", "recommendation 2", "recommendation 3"],
-  "summary": "brief overall assessment"
-}`
-
-      const response = await generateRiskAnalysis(prompt)
-      const data = JSON.parse(response)
-      
-      const analysis: RiskAnalysis = {
-        shipmentId: shipment.id,
-        riskScore: shipment.riskScore,
-        riskLevel: shipment.riskLevel,
-        factors: data.riskFactors || [],
-        recommendations: data.recommendations || [],
-        analysisTimestamp: new Date().toISOString(),
-        analyzedBy: ['Risk Detection Agent', 'RAG Agent', 'Planner Agent']
-      }
-      
+      const analysis = await analyzeShipment(shipment.id)
       setAnalysisResult(analysis)
-      toast.success('Risk analysis complete', {
-        description: `Multi-agent analysis finished successfully via ${getActiveLlmProviderLabel()}`
-      })
+      toast.success('Shipment analysis completed')
     } catch (error) {
-      console.error('Analysis error:', error)
-      toast.error('Analysis failed', {
-        description: 'Unable to complete risk analysis. Please try again.'
-      })
+      toast.error(error instanceof Error ? error.message : 'Analysis failed')
       setAnalysisResult(null)
     } finally {
       setIsAnalyzing(false)
+    }
+  }
+
+  const handleAnalyzeAllShipments = async () => {
+    setIsAnalyzeAllRunning(true)
+    try {
+      const analyses = await analyzeAllShipments()
+      const preferredAnalysis = selectedShipment
+        ? analyses.find((analysis) => analysis.shipmentId === selectedShipment.id)
+        : analyses[0]
+      const preferredShipment = selectedShipment || shipments[0] || null
+
+      setAnalysisResult(preferredAnalysis || analyses[0] || null)
+      setSelectedShipment(preferredShipment)
+      setShowAnalysisDialog(Boolean(preferredAnalysis || analyses[0]))
+      toast.success(`Analyzed ${analyses.length} shipments successfully`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Analyze all failed')
+    } finally {
+      setIsAnalyzeAllRunning(false)
+    }
+  }
+
+  const handleAssignTask = async () => {
+    if (!selectedAgent || agentTaskPrompt.trim().length < 5) {
+      toast.error('Enter a clear task for the selected agent')
+      return
+    }
+
+    try {
+      await assignAgentTask({
+        agentId: selectedAgent.id,
+        prompt: agentTaskPrompt.trim(),
+        shipmentId: selectedShipment?.id,
+      })
+      setAgentTaskPrompt('')
+      toast.success(`${selectedAgent.name} completed the assigned task`)
+      setShowWorkflow(true)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Task assignment failed')
     }
   }
 
@@ -207,8 +206,11 @@ Return ONLY valid JSON in this exact format:
                   variant="outline"
                   className="gap-2"
                   onClick={() => {
-                    manualUpdate()
-                    toast.success('Locations updated')
+                    void manualRefresh().then(() => {
+                      toast.success('Locations updated')
+                    }).catch((error: Error) => {
+                      toast.error(error.message)
+                    })
                   }}
                 >
                   <ArrowsClockwise size={16} weight="duotone" />
@@ -344,9 +346,9 @@ Return ONLY valid JSON in this exact format:
           <TabsContent value="shipments" className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">All Shipments</h2>
-              <Button className="gap-2">
+              <Button className="gap-2" onClick={() => void handleAnalyzeAllShipments()} disabled={isAnalyzeAllRunning || shipments.length === 0}>
                 <Lightning size={18} weight="duotone" />
-                Analyze All
+                {isAnalyzeAllRunning ? 'Analyzing...' : 'Analyze All'}
               </Button>
             </div>
 
@@ -410,6 +412,17 @@ Return ONLY valid JSON in this exact format:
             <div>
               <Label className="text-xs text-muted-foreground">Last Activity</Label>
               <p className="text-sm">{selectedAgent?.lastActivity}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Assign Work</Label>
+              <Input
+                value={agentTaskPrompt}
+                onChange={(event) => setAgentTaskPrompt(event.target.value)}
+                placeholder="Example: Review delays and prepare customer update"
+              />
+              <Button className="w-full" onClick={() => void handleAssignTask()}>
+                Assign Task To {selectedAgent?.name}
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -543,9 +556,22 @@ Return ONLY valid JSON in this exact format:
 
       <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
         <DialogContent className="max-w-3xl">
-          <NotificationCenter onClose={() => setShowNotifications(false)} />
+          <NotificationCenter
+            notifications={notifications}
+            onClose={() => setShowNotifications(false)}
+            onMarkAsRead={(id) => void markNotificationRead(id)}
+            onMarkAllRead={() => void markAllNotificationsRead()}
+          />
         </DialogContent>
       </Dialog>
+
+      <SupportChatbot
+        messages={chatMessages}
+        onSend={async (message) => {
+          await sendSupportMessage(message)
+          toast.success('Assistant responded')
+        }}
+      />
     </div>
   )
 }

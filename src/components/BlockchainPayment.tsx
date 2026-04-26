@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,44 +9,47 @@ import { CurrencyDollar, CheckCircle, XCircle, Clock, Link as LinkIcon } from '@
 import type { Shipment, PaymentTransaction } from '@/types'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useKV } from '@github/spark/hooks'
+import { createBlockchainPayment, fetchBlockchainPaymentData } from '@/lib/api'
 
 interface BlockchainPaymentProps {
   shipment: Shipment
   onClose?: () => void
 }
 
-async function processBlockchainPayment(
-  shipmentId: string,
-  amount: number,
-  from: string,
-  to: string
-): Promise<PaymentTransaction> {
-  await new Promise(resolve => setTimeout(resolve, 2000))
-  
-  const hash = `0x${Math.random().toString(16).substring(2, 66)}`
-  
-  return {
-    id: `TXN-${Date.now()}`,
-    shipmentId,
-    amount,
-    currency: 'ETH',
-    status: 'confirmed',
-    blockchainHash: hash,
-    timestamp: new Date().toISOString(),
-    from,
-    to,
-    gasUsed: Math.floor(Math.random() * 100000) + 21000,
-  }
-}
-
 export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps) {
-  const [transactions, setTransactions] = useKV<PaymentTransaction[]>('payment-transactions', [])
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>([])
   const [amount, setAmount] = useState<string>('0.5')
   const [recipient, setRecipient] = useState<string>('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const shipmentTransactions = (transactions || []).filter(t => t.shipmentId === shipment.id)
+  const shipmentTransactions = (transactions || []).filter((t) => t.shipmentId === shipment.id)
+
+  useEffect(() => {
+    let active = true
+    setIsLoading(true)
+
+    void fetchBlockchainPaymentData(shipment.id)
+      .then((response) => {
+        if (active) {
+          setTransactions(response.transactions)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          toast.error('Unable to load blockchain history')
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [shipment.id])
 
   const handlePayment = async () => {
     const amountNum = parseFloat(amount)
@@ -63,14 +66,15 @@ export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps)
     setIsProcessing(true)
     
     try {
-      const transaction = await processBlockchainPayment(
-        shipment.id,
-        amountNum,
-        '0x...yourWallet',
-        recipient
-      )
-      
-      setTransactions((currentTransactions) => [...currentTransactions, transaction])
+      const { transaction } = await createBlockchainPayment({
+        shipmentId: shipment.id,
+        amount: amountNum,
+        currency: 'ETH',
+        from: '0x...yourWallet',
+        to: recipient,
+      })
+
+      setTransactions((currentTransactions) => [transaction, ...currentTransactions])
       
       toast.success('Payment confirmed', {
         description: `Successfully sent ${amountNum} ETH to ${recipient.substring(0, 10)}...`,
@@ -89,7 +93,7 @@ export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps)
 
   const getTotalPaid = () => {
     return (shipmentTransactions || [])
-      .filter(t => t.status === 'confirmed')
+      .filter((t) => t.status === 'confirmed')
       .reduce((sum, t) => sum + t.amount, 0)
   }
 
@@ -134,7 +138,7 @@ export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps)
 
           <Button 
             onClick={handlePayment} 
-            disabled={isProcessing}
+            disabled={isProcessing || isLoading}
             className="w-full gap-2"
           >
             {isProcessing ? (
@@ -161,7 +165,12 @@ export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps)
           </div>
         </div>
 
-        {shipmentTransactions.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Clock size={32} className="mx-auto mb-2 opacity-50 animate-spin" weight="duotone" />
+            <p className="text-sm">Loading on-chain history...</p>
+          </div>
+        ) : shipmentTransactions.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <CurrencyDollar size={32} className="mx-auto mb-2 opacity-50" weight="duotone" />
             <p className="text-sm">No transactions yet</p>

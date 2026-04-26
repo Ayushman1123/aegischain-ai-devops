@@ -2,16 +2,23 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
 import jwt from 'jsonwebtoken'
-import { v4 as uuidv4 } from 'uuid'
+import { createServer } from 'http'
 import Database from './db.js'
+import { formatShipmentRow } from './agent-engine.js'
+import { DEFAULT_AGENTS } from './fixtures.js'
+import { createCloudStore } from './cloud-store.js'
+import { createRealtimeHub } from './realtime.js'
 import { getCurrentTimestamp, asyncHandler } from './utils.js'
 import {
   createAuthRouter,
   createShipmentRouter,
   createAgentRouter,
   createRiskRouter,
-  createNotificationRouter
-} from './routes.js'
+  createNotificationRouter,
+  createSupportRouter,
+  createBlockchainRouter,
+  simulateShipmentsForUser,
+} from './app-routes.js'
 
 dotenv.config()
 
@@ -26,6 +33,9 @@ if (jwtSecret === 'dev-secret-change-me') {
 }
 
 let db
+let realtime
+let httpServer
+let cloudStore
 
 app.use(cors({ origin: corsOrigin }))
 app.use(express.json())
@@ -65,85 +75,55 @@ app.get('/api/health', (req, res) => {
   })
 })
 
+async function buildDashboardPayload(userId) {
+  const shipmentRows = await db.all(
+    'SELECT * FROM shipments WHERE userId = ? ORDER BY createdAt DESC LIMIT 10',
+    [userId]
+  )
+
+  const shipments = []
+  for (const shipment of shipmentRows) {
+    const history = await db.all(
+      'SELECT latitude, longitude, speed, heading, timestamp FROM location_history WHERE shipmentId = ? ORDER BY timestamp DESC LIMIT 20',
+      [shipment.id]
+    )
+    shipments.push(formatShipmentRow(shipment, history))
+  }
+
+  const agents = await db.all('SELECT id, name, role, status, lastActivity, description FROM agents ORDER BY name LIMIT 10')
+  const notifications = await db.all(
+    'SELECT id, type, shipmentId, title, message, severity, read, actionRequired, timestamp FROM notifications WHERE userId = ? ORDER BY timestamp DESC LIMIT 5',
+    [userId]
+  )
+  const crisisEvents = await db.all(
+    'SELECT * FROM crisis_events WHERE status = "active" ORDER BY createdAt DESC LIMIT 5'
+  )
+
+  return {
+    shipments,
+    agents,
+    notifications: notifications.map((row) => ({ ...row, read: Boolean(row.read), actionRequired: Boolean(row.actionRequired) })),
+    crisisEvents,
+    stats: {
+      totalShipments: shipments.length,
+      activeShipments: shipments.filter((shipment) => shipment.status === 'in-transit').length,
+      criticalAlerts: crisisEvents.length,
+      unreadNotifications: notifications.filter((notification) => !notification.read).length,
+    },
+  }
+}
+
 function registerRoutes() {
-  app.use('/api/auth', createAuthRouter(db, jwtSecret))
-  app.use('/api/shipments', authMiddleware, createShipmentRouter(db))
-  app.use('/api/agents', authMiddleware, createAgentRouter(db))
+  app.use('/api/auth', createAuthRouter(db, jwtSecret, authMiddleware))
+  app.use('/api/shipments', authMiddleware, createShipmentRouter(db, { realtime, cloudStore }))
+  app.use('/api/agents', authMiddleware, createAgentRouter(db, { realtime, cloudStore }))
   app.use('/api/risk', authMiddleware, createRiskRouter(db))
   app.use('/api/notifications', authMiddleware, createNotificationRouter(db))
+  app.use('/api/support', authMiddleware, createSupportRouter(db))
+  app.use('/api/blockchain', authMiddleware, createBlockchainRouter(db, { realtime, cloudStore }))
 
   app.get('/api/dashboard', authMiddleware, asyncHandler(async (req, res) => {
-    const userId = req.user.id
-
-    const shipments = await db.all(
-      'SELECT * FROM shipments WHERE userId = ? ORDER BY createdAt DESC LIMIT 10',
-      [userId]
-    )
-
-    const agents = await db.all('SELECT * FROM agents LIMIT 10')
-
-    const notifications = await db.all(
-      'SELECT * FROM notifications WHERE userId = ? AND read = 0 ORDER BY timestamp DESC LIMIT 5',
-      [userId]
-    )
-
-    const crisisEvents = await db.all(
-      'SELECT * FROM crisis_events WHERE status = "active" LIMIT 5'
-    )
-
-    res.json({
-      shipments,
-      agents,
-      notifications,
-      crisisEvents,
-      stats: {
-        totalShipments: shipments.length,
-        activeShipments: shipments.filter(s => s.status === 'in-transit').length,
-        criticalAlerts: crisisEvents.length,
-        unreadNotifications: notifications.length
-      }
-    })
-  }))
-
-  app.post('/api/shipments/:id/location', authMiddleware, asyncHandler(async (req, res) => {
-    const { latitude, longitude, speed, heading } = req.body
-    const locationId = uuidv4()
-    const now = getCurrentTimestamp()
-
-    await db.run(
-      `INSERT INTO location_history (id, shipmentId, latitude, longitude, speed, heading, timestamp, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [locationId, req.params.id, latitude, longitude, speed, heading, now, now]
-    )
-
-    await db.run(
-      'UPDATE shipments SET currentLat = ?, currentLng = ?, updatedAt = ? WHERE id = ?',
-      [latitude, longitude, now, req.params.id]
-    )
-
-    res.status(201).json({ success: true, locationId })
-  }))
-
-  app.post('/api/shipments/:id/risk-analysis', authMiddleware, asyncHandler(async (req, res) => {
-    const { riskScore, riskLevel, factors, recommendations, analyzedBy } = req.body
-    const analysisId = uuidv4()
-    const now = getCurrentTimestamp()
-
-    await db.run(
-      `INSERT INTO risk_analyses (id, shipmentId, riskScore, riskLevel, factors, recommendations, analysisTimestamp, analyzedBy, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [analysisId, req.params.id, riskScore, riskLevel, JSON.stringify(factors || []), JSON.stringify(recommendations || []), now, JSON.stringify(analyzedBy || []), now]
-    )
-
-    await db.run(
-      'UPDATE shipments SET riskScore = ?, riskLevel = ?, updatedAt = ? WHERE id = ?',
-      [riskScore, riskLevel, now, req.params.id]
-    )
-
-    res.status(201).json({ 
-      analysisId,
-      success: true
-    })
+    res.json(await buildDashboardPayload(req.user.id))
   }))
 }
 
@@ -167,18 +147,14 @@ async function initializeServer() {
     await db.initialize()
     console.log('✅ Database initialized')
 
-    const seedAgents = [
-      { id: 'planner', name: 'Planner Agent', role: 'Master Orchestrator', status: 'active', lastActivity: 'Coordinating multi-agent workflow', description: 'Breaks down complex tasks into subtasks' },
-      { id: 'risk-detection', name: 'Risk Detection Agent', role: 'Threat Analysis', status: 'active', lastActivity: 'Scanning for supply chain disruptions', description: 'Detects delays, weather events, and anomalies' },
-      { id: 'supply-optimization', name: 'Supply Chain Optimizer', role: 'Route Planning', status: 'idle', lastActivity: 'Standing by for optimization requests', description: 'Suggests alternate routes and logistics strategies' },
-      { id: 'crisis-response', name: 'Crisis Response Agent', role: 'Emergency Management', status: 'idle', lastActivity: 'Monitoring for critical events', description: 'Handles emergency protocols and escalation' },
-      { id: 'communication', name: 'Communication Agent', role: 'Stakeholder Relations', status: 'idle', lastActivity: 'Ready to notify stakeholders', description: 'Drafts and sends contextual notifications' },
-      { id: 'blockchain', name: 'Blockchain Logger', role: 'Immutable Audit', status: 'active', lastActivity: 'Logging events to distributed ledger', description: 'Creates tamper-proof records of critical events' },
-      { id: 'rag', name: 'RAG Context Agent', role: 'Knowledge Retrieval', status: 'active', lastActivity: 'Indexing supply chain documentation', description: 'Retrieves factual context to ground AI responses' },
-      { id: 'executor', name: 'Executor Agent', role: 'Action Execution', status: 'idle', lastActivity: 'Awaiting tool calls', description: 'Executes approved actions and tool invocations' }
-    ]
+    cloudStore = createCloudStore()
+    if (cloudStore.enabled) {
+      console.log('✅ Azure Cosmos DB cloud store enabled')
+    } else {
+      console.log('ℹ️ Azure Cosmos DB cloud store disabled (missing AZURE_COSMOS_ENDPOINT/AZURE_COSMOS_KEY)')
+    }
 
-    for (const agent of seedAgents) {
+    for (const agent of DEFAULT_AGENTS) {
       const existing = await db.get('SELECT id FROM agents WHERE id = ?', [agent.id])
       if (!existing) {
         const now = getCurrentTimestamp()
@@ -192,10 +168,18 @@ async function initializeServer() {
 
     console.log('✅ Seeded agents')
 
+    httpServer = createServer(app)
+    realtime = createRealtimeHub({
+      server: httpServer,
+      jwtSecret,
+      simulateForUser: async (userId) => simulateShipmentsForUser(db, userId, { cloudStore }),
+    })
+    console.log('✅ Real-time WebSocket hub ready on /ws')
+
     registerRoutes()
     setupErrorHandler()
 
-    app.listen(port, () => {
+    httpServer.listen(port, () => {
       console.log(`✅ AegisChain Backend running on http://localhost:${port}`)
       console.log(`📚 API Documentation:`)
       console.log(`   POST   /api/auth/login         - User login`)
@@ -213,6 +197,17 @@ async function initializeServer() {
       console.log(`   GET    /api/notifications      - Get notifications`)
       console.log(`   POST   /api/notifications      - Create notification`)
       console.log(`   PATCH  /api/notifications/:id/read - Mark as read`)
+      console.log(`   PATCH  /api/notifications/read-all - Mark all notifications as read`)
+      console.log(`   GET    /api/agents/workflow      - Get agent workflow history`)
+      console.log(`   POST   /api/agents/tasks         - Assign work to agents`)
+      console.log(`   POST   /api/agents/analyze/:id   - Analyze one shipment`)
+      console.log(`   POST   /api/agents/analyze-all   - Analyze all shipments`)
+      console.log(`   GET    /api/support/chat         - Get chatbot history`)
+      console.log(`   POST   /api/support/chat         - Send chatbot message`)
+      console.log(`   GET    /api/shipments/:id/history - Get shipment historical playback snapshots`)
+      console.log(`   GET    /api/blockchain/shipment/:id - Get shipment blockchain transactions/events`)
+      console.log(`   POST   /api/blockchain/payment     - Submit and confirm blockchain payment`)
+      console.log(`   WS     /ws                         - Real-time tracking and workflow updates`)
       console.log('')
     })
   } catch (err) {
@@ -223,6 +218,8 @@ async function initializeServer() {
 
 process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down...')
+  realtime?.close()
+  httpServer?.close()
   await db.close()
   process.exit(0)
 })

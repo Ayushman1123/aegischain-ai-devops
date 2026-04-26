@@ -15,6 +15,7 @@ class AuthApiError extends Error {
   }
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787'
 const TOKEN_STORAGE_KEY = 'aegischain.auth.token'
 const USER_STORAGE_KEY = 'aegischain.auth.user'
 
@@ -56,16 +57,28 @@ export async function signInWithProfile(name: string, email: string) {
     throw new AuthApiError('Enter a valid email address')
   }
 
-  const user: AuthUser = {
-    id: btoa(normalizedEmail),
-    name: normalizedName,
-    email: normalizedEmail,
-    picture: '',
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: normalizedName, email: normalizedEmail }),
+    })
+  } catch {
+    throw new AuthApiError('Cannot reach backend auth service. Start the backend server.')
   }
 
-  localStorage.setItem(TOKEN_STORAGE_KEY, `local-${Date.now()}-${user.id}`)
-  setStoredUser(user)
-  return user
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({ error: 'Login failed' })) as { error?: string }
+    throw new AuthApiError(payload.error || 'Login failed', response.status)
+  }
+
+  const data = await response.json() as { token: string; user: AuthUser }
+  localStorage.setItem(TOKEN_STORAGE_KEY, data.token)
+  setStoredUser(data.user)
+  return data.user
 }
 
 export async function fetchAuthenticatedUser() {
@@ -74,11 +87,23 @@ export async function fetchAuthenticatedUser() {
     return null
   }
 
-  const user = getStoredUser()
-  if (!user) {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+  } catch {
+    throw new AuthApiError('Cannot reach backend auth service. Start the backend server.')
+  }
+
+  if (!response.ok) {
     clearStoredToken()
     return null
   }
 
-  return user
+  const data = await response.json() as { user: AuthUser }
+  setStoredUser(data.user)
+  return data.user
 }
