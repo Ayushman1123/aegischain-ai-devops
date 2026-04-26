@@ -132,7 +132,7 @@ DATABASE_URL=postgresql://user:pass@postgres:5432/db
 REDIS_URL=redis://redis:6379
 KAFKA_BROKER=kafka:9092
 
-WEB3_PROVIDER=https://rpc-url
+
 🤖 API Example
 POST /analyze
 
