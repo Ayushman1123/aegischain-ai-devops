@@ -116,15 +116,10 @@ Node.js (v20+)
 Python (3.11+)
 Kubernetes (optional for production)
 ⚡ Local Development
-# Clone repo
-git clone https://github.com/your-username/aegischain-ai.git
-cd aegischain-ai
 
 # Start services
 docker-compose up --build
-🌐 Access
-Frontend → http://localhost:3000
-Backend → http://localhost:8000
+
 🔐 Environment Variables
 
 Create .env:
