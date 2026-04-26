@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,12 +11,17 @@ import { AgentCard } from '@/components/AgentCard'
 import { ShipmentCard } from '@/components/ShipmentCard'
 import { RiskGauge } from '@/components/RiskGauge'
 import { TrackingMap } from '@/components/TrackingMap'
+import { HistoricalPlayback } from '@/components/HistoricalPlayback'
+import { BlockchainPayment } from '@/components/BlockchainPayment'
+import { AgentWorkflowView } from '@/components/AgentWorkflowView'
+import { NotificationCenter } from '@/components/NotificationCenter'
 import { AGENTS, SAMPLE_SHIPMENTS, formatTimestamp } from '@/lib/agents'
 import { formatETA } from '@/lib/tracking'
 import { useRealTimeTracking } from '@/hooks/use-real-time-tracking'
-import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise } from '@phosphor-icons/react'
-import type { Agent, Shipment, RiskAnalysis } from '@/types'
+import { Brain, Lightning, ChartLine, Bell, Cube, PlayCircle, PauseCircle, ArrowsClockwise, ClockCounterClockwise, CurrencyDollar, Cloud, Car } from '@phosphor-icons/react'
+import type { Agent, Shipment, RiskAnalysis, AgentWorkflowStep, NotificationAlert, WeatherData, TrafficData } from '@/types'
 import { toast } from 'sonner'
+import { useKV } from '@github/spark/hooks'
 
 function App() {
   const [agents] = useState<Agent[]>(AGENTS)
@@ -26,10 +31,37 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<RiskAnalysis | null>(null)
   const [showAnalysisDialog, setShowAnalysisDialog] = useState(false)
+  const [showHistoricalPlayback, setShowHistoricalPlayback] = useState(false)
+  const [showBlockchainPayment, setShowBlockchainPayment] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [showWorkflow, setShowWorkflow] = useState(false)
+  const [notifications, setNotifications] = useKV<NotificationAlert[]>('notification-alerts', [])
+  const [workflowSteps, setWorkflowSteps] = useState<AgentWorkflowStep[]>([])
 
   const activeAgents = agents.filter(a => a.status === 'active' || a.status === 'processing')
   const criticalShipments = shipments.filter(s => s.riskLevel === 'critical' || s.status === 'crisis')
   const avgRisk = Math.round(shipments.reduce((sum, s) => sum + s.riskScore, 0) / shipments.length)
+  const unreadNotifications = (notifications || []).filter(n => !n.read).length
+
+  useEffect(() => {
+    shipments.forEach(shipment => {
+      const prevShipment = SAMPLE_SHIPMENTS.find(s => s.id === shipment.id)
+      if (prevShipment && shipment.eta !== prevShipment.eta) {
+        const notification: NotificationAlert = {
+          id: `notif-${Date.now()}-${shipment.id}`,
+          type: 'eta_update',
+          shipmentId: shipment.id,
+          title: 'ETA Updated',
+          message: `${shipment.name} ETA changed to ${shipment.eta}`,
+          severity: 'info',
+          timestamp: new Date().toISOString(),
+          read: false,
+          actionRequired: false,
+        }
+        setNotifications((current) => [notification, ...(current || [])].slice(0, 50))
+      }
+    })
+  }, [shipments, setNotifications])
 
   const handleAnalyzeShipment = async (shipment: Shipment) => {
     setIsAnalyzing(true)
@@ -152,9 +184,18 @@ Return ONLY valid JSON in this exact format:
                   <ArrowsClockwise size={16} weight="duotone" />
                   Refresh
                 </Button>
-                <Button size="sm" variant="outline" className="gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="gap-2 relative"
+                  onClick={() => setShowNotifications(true)}
+                >
                   <Bell size={16} weight="duotone" />
-                  Alerts
+                  {unreadNotifications > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-xs flex items-center justify-center">
+                      {unreadNotifications}
+                    </span>
+                  )}
                 </Button>
               </div>
             </div>
@@ -288,10 +329,12 @@ Return ONLY valid JSON in this exact format:
 
           <TabsContent value="agents" className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Multi-Agent System</h2>
-              <div className="flex items-center gap-2 text-sm">
-                <div className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
-                <span className="text-muted-foreground">{activeAgents.length} agents processing</span>
+              <h2 className="text-2xl font-bold">AI Agent System</h2>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowWorkflow(!showWorkflow)}>
+                  <Brain size={16} weight="duotone" />
+                  {showWorkflow ? 'Hide' : 'Show'} Workflow
+                </Button>
               </div>
             </div>
 
@@ -305,39 +348,9 @@ Return ONLY valid JSON in this exact format:
               ))}
             </div>
 
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Agent Orchestration Flow</h3>
-              <div className="space-y-3 text-sm font-mono">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <div className="w-2 h-2 rounded-full bg-primary" />
-                  <span>Input → Planner Agent</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-4">
-                  <div className="w-2 h-2 rounded-full bg-accent" />
-                  <span>Planner → Risk Detection Agent</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-8">
-                  <div className="w-2 h-2 rounded-full bg-warning" />
-                  <span>IF risk &gt; threshold → Crisis Response</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-12">
-                  <div className="w-2 h-2 rounded-full bg-destructive" />
-                  <span>→ Communication Agent</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-12">
-                  <div className="w-2 h-2 rounded-full bg-success" />
-                  <span>→ Blockchain Logger</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-8">
-                  <div className="w-2 h-2 rounded-full bg-accent" />
-                  <span>ELSE → Supply Chain Optimizer</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground ml-4">
-                  <div className="w-2 h-2 rounded-full bg-primary" />
-                  <span>Always → RAG Agent (grounding)</span>
-                </div>
-              </div>
-            </Card>
+            {showWorkflow && (
+              <AgentWorkflowView workflowSteps={workflowSteps} />
+            )}
           </TabsContent>
         </Tabs>
       </main>
@@ -441,6 +454,59 @@ Return ONLY valid JSON in this exact format:
               <p>Analysis failed. Please try again.</p>
             </div>
           )}
+          
+          <div className="flex items-center justify-center gap-2 pt-4 border-t">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => {
+                setShowHistoricalPlayback(true)
+              }}
+            >
+              <ClockCounterClockwise size={16} weight="duotone" />
+              Historical Playback
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => {
+                setShowBlockchainPayment(true)
+              }}
+            >
+              <CurrencyDollar size={16} weight="duotone" />
+              Blockchain Payment
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showHistoricalPlayback} onOpenChange={setShowHistoricalPlayback}>
+        <DialogContent className="max-w-4xl">
+          {selectedShipment && (
+            <HistoricalPlayback 
+              shipment={selectedShipment} 
+              onClose={() => setShowHistoricalPlayback(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBlockchainPayment} onOpenChange={setShowBlockchainPayment}>
+        <DialogContent className="max-w-3xl">
+          {selectedShipment && (
+            <BlockchainPayment 
+              shipment={selectedShipment} 
+              onClose={() => setShowBlockchainPayment(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
+        <DialogContent className="max-w-3xl">
+          <NotificationCenter onClose={() => setShowNotifications(false)} />
         </DialogContent>
       </Dialog>
     </div>

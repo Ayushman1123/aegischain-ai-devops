@@ -127,3 +127,83 @@ export interface RouteAlternative {
   reliability: number
   tradeoffs: string[]
 }
+
+export interface HistoricalSnapshot {
+  timestamp: string
+  location: Coordinates
+  speed: number
+  riskScore: number
+  status: ShipmentStatus
+  eta: string
+  progress: number
+}
+
+export interface PaymentTransaction {
+  id: string
+  shipmentId: string
+  amount: number
+  currency: string
+  status: 'pending' | 'confirmed' | 'failed'
+  blockchainHash?: string
+  timestamp: string
+  from: string
+  to: string
+  gasUsed?: number
+}
+
+export interface WeatherData {
+  location: Coordinates
+  temperature: number
+  conditions: string
+  windSpeed: number
+  precipitation: number
+  visibility: number
+  alerts: WeatherAlert[]
+}
+
+export interface WeatherAlert {
+  type: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  description: string
+  validUntil: string
+}
+
+export interface TrafficData {
+  location: Coordinates
+  congestionLevel: number
+  averageSpeed: number
+  incidents: TrafficIncident[]
+  delayMinutes: number
+}
+
+export interface TrafficIncident {
+  type: 'accident' | 'construction' | 'closure' | 'congestion'
+  severity: 'low' | 'medium' | 'high'
+  description: string
+  location: Coordinates
+}
+
+export interface NotificationAlert {
+  id: string
+  type: 'eta_update' | 'delay' | 'risk_increase' | 'weather' | 'traffic' | 'crisis'
+  shipmentId: string
+  title: string
+  message: string
+  severity: 'info' | 'warning' | 'error' | 'success'
+  timestamp: string
+  read: boolean
+  actionRequired: boolean
+}
+
+export interface AgentWorkflowStep {
+  id: string
+  agentId: string
+  agentName: string
+  action: string
+  input: Record<string, any>
+  output: Record<string, any>
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  startTime: string
+  endTime?: string
+  duration?: number
+}
