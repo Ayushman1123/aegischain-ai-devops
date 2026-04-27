@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
-declare const GITHUB_RUNTIME_PERMANENT_NAME: string
-declare const BASE_KV_SERVICE_URL: string
+declare const _GITHUB_RUNTIME_PERMANENT_NAME: string
+declare const _BASE_KV_SERVICE_URL: string
 
 interface ImportMetaEnv {
   readonly VITE_HUGGING_FACE_API_KEY?: string
@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }

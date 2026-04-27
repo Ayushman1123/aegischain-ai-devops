@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { CurrencyDollar, CheckCircle, XCircle, Clock, Link as LinkIcon } from '@phosphor-icons/react'
 import type { Shipment, PaymentTransaction } from '@/types'
 import { toast } from 'sonner'
@@ -13,10 +12,9 @@ import { createBlockchainPayment, fetchBlockchainPaymentData } from '@/lib/api'
 
 interface BlockchainPaymentProps {
   shipment: Shipment
-  onClose?: () => void
 }
 
-export function BlockchainPayment({ shipment, onClose }: BlockchainPaymentProps) {
+export function BlockchainPayment({ shipment }: BlockchainPaymentProps) {
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([])
   const [amount, setAmount] = useState<string>('0.5')
   const [recipient, setRecipient] = useState<string>('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb')

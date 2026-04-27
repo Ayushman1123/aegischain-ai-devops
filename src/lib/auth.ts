@@ -83,7 +83,7 @@ function persistWorkingApiBase(base: string) {
   localStorage.setItem(API_BASE_STORAGE_KEY, normalizeBase(base))
 }
 
-function getStoredUser(): AuthUser | null {
+function _getStoredUser(): AuthUser | null {
   const raw = localStorage.getItem(USER_STORAGE_KEY)
   if (!raw) {
     return null

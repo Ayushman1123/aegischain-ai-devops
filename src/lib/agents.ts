@@ -1,4 +1,4 @@
-import type { Agent, Shipment, AgentActivity, RiskAnalysis, CrisisEvent, RiskLevel, ShipmentStatus, AgentStatus } from '@/types'
+import type { Agent, Shipment, AgentActivity, RiskLevel, ShipmentStatus, AgentStatus } from '@/types'
 import { CITY_COORDINATES, interpolatePosition, calculateDistance, calculateETA, generateLocationHistory } from '@/lib/tracking'
 
 export const AGENTS: Agent[] = [

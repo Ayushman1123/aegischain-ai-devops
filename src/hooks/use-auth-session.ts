@@ -35,7 +35,7 @@ export function useAuthSession() {
           email: storedProfile?.email || sparkUser?.email || DEFAULT_USER_PROFILE.email,
           picture: sparkUser?.avatarUrl || '',
         })
-      } catch (error) {
+      } catch {
         if (mounted) {
           setUser({
             id: 'default-operator',
