@@ -9,6 +9,7 @@ import { DEFAULT_AGENTS } from './fixtures.js'
 import { createCloudStore } from './cloud-store.js'
 import { createRealtimeHub } from './realtime.js'
 import { getCurrentTimestamp, asyncHandler } from './utils.js'
+import { createAgentOrchestrator } from './lanchain-integration.js'
 import {
   createAuthRouter,
   createShipmentRouter,
@@ -36,6 +37,7 @@ let db
 let realtime
 let httpServer
 let cloudStore
+let agentOrchestrator
 
 const corsOptions = corsOrigin === '*'
   ? {}
@@ -131,6 +133,99 @@ function registerRoutes() {
   }))
 }
 
+function setupEnhancedRoutes() {
+  // Get list of enhanced agents with capabilities
+  app.get('/api/agents/list', authMiddleware, asyncHandler(async (req, res) => {
+    const agents = agentOrchestrator.listAgents()
+    res.json({
+      agents,
+      totalAgents: agents.length,
+      capabilities: 'full',
+    })
+  }))
+
+  // Get available agent tools
+  app.get('/api/agents/tools', authMiddleware, asyncHandler(async (req, res) => {
+    const tools = toolWrapper.describeAllTools()
+    res.json({
+      tools,
+      totalTools: tools.length,
+      description: 'Complete list of available agent capabilities',
+    })
+  }))
+
+  // Orchestrate enhanced task with LLM
+  app.post('/api/agents/orchestrate', authMiddleware, asyncHandler(async (req, res) => {
+    const { task, context = {} } = req.body
+
+    if (!task) {
+      return res.status(400).json({ error: 'Task is required' })
+    }
+
+    const executionResult = await agentOrchestrator.orchestrateTask(task, context)
+
+    res.json({
+      taskId: executionResult.taskId,
+      agentId: executionResult.agentId,
+      agentName: executionResult.agentName,
+      status: executionResult.status,
+      result: executionResult.result,
+      startTime: executionResult.startTime,
+      endTime: executionResult.endTime,
+      duration: executionResult.duration,
+      timestamp: getCurrentTimestamp(),
+    })
+  }))
+
+  // Execute batch tasks
+  app.post('/api/agents/batch-orchestrate', authMiddleware, asyncHandler(async (req, res) => {
+    const { tasks, context = {} } = req.body
+
+    if (!tasks || !Array.isArray(tasks)) {
+      return res.status(400).json({ error: 'Tasks array is required' })
+    }
+
+    const batchResult = await agentOrchestrator.processBatchTasks(tasks, context)
+
+    res.json({
+      totalTasks: batchResult.totalTasks,
+      completedTasks: batchResult.completedTasks,
+      failedTasks: batchResult.failedTasks,
+      executionTime: batchResult.executionTime,
+      timestamp: getCurrentTimestamp(),
+    })
+  }))
+
+  // Get execution history
+  app.get('/api/agents/execution-log', authMiddleware, asyncHandler(async (req, res) => {
+    const log = agentOrchestrator.getExecutionLog()
+    res.json({
+      totalExecutions: log.length,
+      executionLog: log.slice(-20), // Last 20 executions
+      timestamp: getCurrentTimestamp(),
+    })
+  }))
+
+  // Get specific agent capabilities
+  app.get('/api/agents/:id/capabilities', authMiddleware, asyncHandler(async (req, res) => {
+    const { id } = req.params
+    const capabilities = agentOrchestrator.getAgentCapabilities(id)
+
+    if (!capabilities) {
+      return res.status(404).json({ error: 'Agent not found' })
+    }
+
+    res.json({
+      agentId: capabilities.id,
+      name: capabilities.name,
+      role: capabilities.role,
+      functions: Object.keys(capabilities.functions),
+      totalCapabilities: Object.keys(capabilities.functions).length,
+      timestamp: getCurrentTimestamp(),
+    })
+  }))
+}
+
 function setupErrorHandler() {
   // eslint-disable-next-line
   app.use((err, req, res, next) => {
@@ -147,10 +242,17 @@ function setupErrorHandler() {
 async function initializeServer() {
   try {
     console.log('📦 Initializing AegisChain Backend...')
-    
+
     db = new Database(dbPath)
     await db.initialize()
     console.log('✅ Database initialized')
+
+    // Initialize Enhanced Agent System with LLM
+    const llmProvider = null // Ready for LL M integration in production
+    agentOrchestrator = createAgentOrchestrator(db, llmProvider)
+    console.log('✅ Enhanced Agent System initialized with LLM support')
+    console.log(`   - Agents available: ${agentOrchestrator.listAgents().length}`)
+    console.log(`   - Tools available: ${agentOrchestrator.listAgents().length * 6}`) // Approximate
 
     cloudStore = createCloudStore()
     if (cloudStore.enabled) {
@@ -182,6 +284,7 @@ async function initializeServer() {
     console.log('✅ Real-time WebSocket hub ready on /ws')
 
     registerRoutes()
+    setupEnhancedRoutes()
     setupErrorHandler()
 
     httpServer.listen(port, () => {
@@ -196,6 +299,9 @@ async function initializeServer() {
       console.log(`   PATCH  /api/shipments/:id      - Update shipment`)
       console.log(`   POST   /api/shipments/:id/location - Update location`)
       console.log(`   GET    /api/agents             - Get agents`)
+      console.log(`   GET    /api/agents/list        - List enhanced agents (with capabilities)`)
+      console.log(`   GET    /api/agents/tools       - List available agent tools`)
+      console.log(`   POST   /api/agents/orchestrate - Orchestrate enhanced task`)
       console.log(`   PATCH  /api/agents/:id         - Update agent`)
       console.log(`   GET    /api/risk/shipment/:id  - Get risk analysis`)
       console.log(`   POST   /api/risk               - Create risk analysis`)
