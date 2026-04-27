@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import type { Shipment, Coordinates } from '@/types'
 import { getRiskLevelColor, getShipmentStatusBadge } from '@/lib/agents'
 import { formatDistance, formatSpeed } from '@/lib/tracking'
-import { MapPin, NavigationArrow, Gauge, Path } from '@phosphor-icons/react'
+import { MapPin, NavigationArrow, Gauge, Path, Globe } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 
 interface TrackingMapProps {
@@ -14,80 +14,68 @@ interface TrackingMapProps {
 }
 
 export function TrackingMap({ shipments, selectedShipment, onSelectShipment }: TrackingMapProps) {
-  const bounds = useMemo(() => {
-    const allCoords: Coordinates[] = shipments.flatMap((s) => [
-      s.originCoords,
-      s.destinationCoords,
-      s.currentLocation,
-    ])
-
-    const lats = allCoords.map((c) => c.lat)
-    const lngs = allCoords.map((c) => c.lng)
-
-    return {
-      minLat: Math.min(...lats),
-      maxLat: Math.max(...lats),
-      minLng: Math.min(...lngs),
-      maxLng: Math.max(...lngs),
-    }
-  }, [shipments])
-
-  const viewBox = useMemo(() => {
-    const padding = 2
-    const width = bounds.maxLng - bounds.minLng + padding * 2
-    const height = bounds.maxLat - bounds.minLat + padding * 2
-
-    return {
-      x: bounds.minLng - padding,
-      y: bounds.minLat - padding,
-      width,
-      height,
-    }
-  }, [bounds])
-
+  // World map coordinates (mercator projection)
   const projectCoord = (coord: Coordinates) => {
-    const x = coord.lng
-    const y = -coord.lat
+    // Convert latitude/longitude to mercator projection (0-100 scale)
+    const x = ((coord.lng + 180) / 360) * 100
+    const latRad = (coord.lat * Math.PI) / 180
+    const y = ((1 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / Math.PI) / 2) * 100
     return { x, y }
   }
 
   return (
     <Card className="p-6 bg-card relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-      
+
       <div className="relative">
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold mb-1">Live Tracking Map</h3>
-          <p className="text-sm text-muted-foreground">Real-time shipment locations and routes</p>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Globe size={20} className="text-primary" weight="duotone" />
+              <h3 className="text-lg font-semibold">World Tracking Map</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">Global shipment locations and routes</p>
+          </div>
         </div>
 
-        <div className="relative bg-secondary/20 rounded-lg border border-border overflow-hidden" style={{ aspectRatio: '16/10' }}>
+        <div className="relative bg-gradient-to-br from-blue-950/20 via-blue-900/10 to-cyan-950/20 rounded-lg border border-border overflow-hidden" style={{ aspectRatio: '20/12' }}>
           <svg
-            viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-            className="w-full h-full"
-            style={{ transform: 'scaleY(-1)' }}
+            viewBox="0 0 100 100"
+            className="w-full h-full absolute inset-0"
+            style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.4), rgba(6,78,115,0.2))' }}
           >
+            {/* World Map Grid */}
             <defs>
-              <marker
-                id="arrowhead"
-                markerWidth="10"
-                markerHeight="10"
-                refX="9"
-                refY="3"
-                orient="auto"
-              >
-                <polygon
-                  points="0 0, 10 3, 0 6"
-                  className="fill-accent/40"
-                />
-              </marker>
-
+              <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(148,163,184,0.1)" strokeWidth="0.3" />
+              </pattern>
               <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="var(--color-muted)" stopOpacity="0.3" />
-                <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0.6" />
+                <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.7" />
               </linearGradient>
+              <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <polygon points="0 0, 10 3, 0 6" fill="#06b6d4" opacity="0.6" />
+              </marker>
             </defs>
 
+            {/* Grid background */}
+            <rect width="100" height="100" fill="url(#grid)" />
+
+            {/* Latitude lines */}
+            <g stroke="rgba(148,163,184,0.08)" strokeWidth="0.2">
+              {[0, 20, 40, 60, 80].map((lat) => (
+                <line key={`lat-${lat}`} x1="0" y1={lat} x2="100" y2={lat} />
+              ))}
+            </g>
+
+            {/* Longitude lines */}
+            <g stroke="rgba(148,163,184,0.08)" strokeWidth="0.2">
+              {[0, 25, 50, 75].map((lng) => (
+                <line key={`lng-${lng}`} x1={lng} y1="0" x2={lng} y2="100" />
+              ))}
+            </g>
+
+            {/* Render shipment routes and tracking elements */}
             {shipments.map((shipment) => {
               const origin = projectCoord(shipment.originCoords)
               const destination = projectCoord(shipment.destinationCoords)
@@ -96,69 +84,125 @@ export function TrackingMap({ shipments, selectedShipment, onSelectShipment }: T
 
               return (
                 <g key={shipment.id}>
+                  {/* Route line with arrow */}
                   <line
                     x1={origin.x}
                     y1={origin.y}
                     x2={destination.x}
                     y2={destination.y}
                     stroke="url(#routeGradient)"
-                    strokeWidth={isSelected ? '0.08' : '0.04'}
-                    strokeDasharray={isSelected ? '0.2 0.1' : '0.15 0.1'}
+                    strokeWidth={isSelected ? '0.4' : '0.25'}
+                    strokeDasharray={isSelected ? '1 0.5' : '0.8 0.4'}
                     markerEnd="url(#arrowhead)"
+                    opacity={isSelected ? '1' : '0.6'}
                     className="transition-all duration-300"
                   />
 
-                  <circle
-                    cx={origin.x}
-                    cy={origin.y}
-                    r={isSelected ? '0.15' : '0.1'}
-                    className="fill-muted stroke-border transition-all duration-300"
-                    strokeWidth="0.02"
-                  />
+                  {/* Origin marker (departure) */}
+                  <g>
+                    <circle
+                      cx={origin.x}
+                      cy={origin.y}
+                      r={isSelected ? '0.7' : '0.5'}
+                      className="fill-cyan-400/30 stroke-cyan-400 transition-all duration-300"
+                      strokeWidth="0.15"
+                    />
+                    <circle
+                      cx={origin.x}
+                      cy={origin.y}
+                      r={isSelected ? '1.2' : '0.8'}
+                      className="fill-transparent stroke-cyan-300 transition-all duration-300"
+                      strokeWidth="0.1"
+                      opacity="0.4"
+                    />
+                  </g>
 
-                  <circle
-                    cx={destination.x}
-                    cy={destination.y}
-                    r={isSelected ? '0.15' : '0.1'}
-                    className="fill-accent stroke-accent-foreground transition-all duration-300"
-                    strokeWidth="0.02"
-                  />
+                  {/* Destination marker (arrival) */}
+                  <g>
+                    <circle
+                      cx={destination.x}
+                      cy={destination.y}
+                      r={isSelected ? '0.7' : '0.5'}
+                      className="fill-emerald-400/30 stroke-emerald-400 transition-all duration-300"
+                      strokeWidth="0.15"
+                    />
+                    <circle
+                      cx={destination.x}
+                      cy={destination.y}
+                      r={isSelected ? '1.2' : '0.8'}
+                      className="fill-transparent stroke-emerald-300 transition-all duration-300"
+                      strokeWidth="0.1"
+                      opacity="0.4"
+                    />
+                  </g>
 
-                  <circle
-                    cx={current.x}
-                    cy={current.y}
-                    r={isSelected ? '0.25' : '0.18'}
-                    className={cn(
-                      'cursor-pointer transition-all duration-300',
-                      shipment.riskLevel === 'critical'
-                        ? 'fill-destructive stroke-destructive-foreground animate-pulse-glow'
-                        : shipment.riskLevel === 'high'
-                        ? 'fill-destructive stroke-destructive-foreground'
-                        : shipment.riskLevel === 'medium'
-                        ? 'fill-warning stroke-warning-foreground'
-                        : 'fill-success stroke-success-foreground'
-                    )}
-                    strokeWidth="0.04"
-                    onClick={() => onSelectShipment?.(shipment)}
-                  />
+                  {/* Current location marker with risk-based color */}
+                  <g className="cursor-pointer" onClick={() => onSelectShipment?.(shipment)}>
+                    <circle
+                      cx={current.x}
+                      cy={current.y}
+                      r={isSelected ? '1.2' : '0.8'}
+                      className={cn(
+                        'transition-all duration-300',
+                        shipment.riskLevel === 'critical'
+                          ? 'fill-red-500/40 stroke-red-400'
+                          : shipment.riskLevel === 'high'
+                          ? 'fill-orange-500/40 stroke-orange-400'
+                          : shipment.riskLevel === 'medium'
+                          ? 'fill-yellow-500/40 stroke-yellow-400'
+                          : 'fill-green-500/40 stroke-green-400'
+                      )}
+                      strokeWidth="0.2"
+                    />
+                    {/* Pulsing outer ring for current location */}
+                    <circle
+                      cx={current.x}
+                      cy={current.y}
+                      r={isSelected ? '1.8' : '1.3'}
+                      className={cn(
+                        'fill-transparent transition-all duration-300',
+                        shipment.riskLevel === 'critical'
+                          ? 'stroke-red-400 animate-pulse'
+                          : shipment.riskLevel === 'high'
+                          ? 'stroke-orange-400'
+                          : shipment.riskLevel === 'medium'
+                          ? 'stroke-yellow-400'
+                          : 'stroke-green-400'
+                      )}
+                      strokeWidth="0.12"
+                      opacity="0.5"
+                    />
+                  </g>
 
+                  {/* Speed indicator line */}
+                  {isSelected && shipment.averageSpeed > 0 && (
+                    <g opacity="0.6">
+                      <circle
+                        cx={current.x}
+                        cy={current.y}
+                        r="2"
+                        className="fill-transparent stroke-accent animate-pulse"
+                        strokeWidth="0.1"
+                      />
+                    </g>
+                  )}
+
+                  {/* Distance progress indicator (show percentage along route) */}
                   {isSelected && (
                     <>
                       <circle
                         cx={current.x}
                         cy={current.y}
-                        r="0.4"
-                        className="fill-transparent stroke-accent animate-pulse-glow"
-                        strokeWidth="0.03"
-                        opacity="0.6"
+                        r="2.5"
+                        className="fill-transparent stroke-accent/30"
+                        strokeWidth="0.08"
                       />
                       <circle
                         cx={current.x}
                         cy={current.y}
-                        r="0.55"
-                        className="fill-transparent stroke-accent animate-pulse-glow"
-                        strokeWidth="0.02"
-                        opacity="0.3"
+                        r="3.2"
+                        className="fill-transparent stroke-accent/20"
+                        strokeWidth="0.06"
                       />
                     </>
                   )}
@@ -167,24 +211,49 @@ export function TrackingMap({ shipments, selectedShipment, onSelectShipment }: T
             })}
           </svg>
 
-          <div className="absolute top-4 right-4 flex flex-col gap-2">
-            <div className="bg-card/90 backdrop-blur-sm border border-border rounded-lg p-2 text-xs space-y-1.5">
+          {/* Legend and Controls */}
+          <div className="absolute top-4 right-4 flex flex-col gap-3">
+            {/* Risk Level Legend */}
+            <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-2 max-w-48">
+              <div className="font-semibold text-foreground mb-2">Risk Levels</div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-success border-2 border-success-foreground" />
+                <div className="w-3 h-3 rounded-full bg-green-500 border border-green-400" />
                 <span className="text-muted-foreground">Low Risk</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-warning border-2 border-warning-foreground" />
+                <div className="w-3 h-3 rounded-full bg-yellow-500 border border-yellow-400" />
                 <span className="text-muted-foreground">Medium Risk</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-destructive border-2 border-destructive-foreground" />
-                <span className="text-muted-foreground">High/Critical</span>
+                <div className="w-3 h-3 rounded-full bg-orange-500 border border-orange-400" />
+                <span className="text-muted-foreground">High Risk</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500 border border-red-400 animate-pulse" />
+                <span className="text-muted-foreground">Critical</span>
+              </div>
+            </div>
+
+            {/* Tracking Elements Legend */}
+            <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg p-3 text-xs space-y-2 max-w-48">
+              <div className="font-semibold text-foreground mb-2">Map Elements</div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-cyan-400" />
+                <span className="text-muted-foreground">Origin (Departure)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span className="text-muted-foreground">Destination (Arrival)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                <span className="text-muted-foreground">Current Position</span>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Shipment Details Panel */}
         {selectedShipment && (
           <Card className="mt-4 p-4 bg-accent/5 border-accent/30">
             <div className="space-y-3">
@@ -198,13 +267,13 @@ export function TrackingMap({ shipments, selectedShipment, onSelectShipment }: T
                 </Badge>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                 <div className="flex items-center gap-2">
                   <MapPin size={16} className="text-muted-foreground" weight="duotone" />
                   <div>
-                    <div className="text-muted-foreground">Current Location</div>
-                    <div className="font-mono text-foreground">
-                      {selectedShipment.currentLocation.lat.toFixed(4)}°, {selectedShipment.currentLocation.lng.toFixed(4)}°
+                    <div className="text-muted-foreground">Location</div>
+                    <div className="font-mono text-foreground text-[11px]">
+                      {selectedShipment.currentLocation.lat.toFixed(2)}°, {selectedShipment.currentLocation.lng.toFixed(2)}°
                     </div>
                   </div>
                 </div>
