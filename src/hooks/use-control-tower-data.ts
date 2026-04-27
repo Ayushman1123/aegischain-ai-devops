@@ -26,6 +26,9 @@ export interface AgentTask {
   status: 'pending' | 'running' | 'completed' | 'failed'
   assignedAgentId: string
   shipmentId?: string
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  createdAt: string
+  completedAt?: string
 }
 
 export function useControlTowerData(enabled: boolean) {
@@ -218,10 +221,16 @@ Return the result as a valid JSON object with this structure:
   }, [shipments, handleAnalyzeShipment])
 
   const handleAssignAgentTask = useCallback(
-    async (payload: { agentId?: string; prompt: string; shipmentId?: string }) => {
+    async (payload: { 
+      agentId?: string
+      prompt: string
+      shipmentId?: string
+      priority?: 'low' | 'medium' | 'high' | 'critical'
+    }) => {
       const taskPrompt = spark.llmPrompt`You are an AI agent orchestrator. Break down this task into executable steps:
 
 Task: ${payload.prompt}
+Priority: ${payload.priority || 'medium'}
 ${payload.agentId ? `Assigned to: ${payload.agentId}` : 'Auto-assign appropriate agents'}
 ${payload.shipmentId ? `Related shipment: ${payload.shipmentId}` : ''}
 
@@ -242,6 +251,7 @@ Provide a structured workflow with steps for execution. Return as JSON:
       const response = await spark.llm(taskPrompt, 'gpt-4o', true)
       const parsed = JSON.parse(response)
 
+      const now = new Date().toISOString()
       const task: AgentTask = {
         id: `task-${Date.now()}`,
         title: parsed.title || 'Agent Task',
@@ -249,6 +259,9 @@ Provide a structured workflow with steps for execution. Return as JSON:
         status: 'completed',
         assignedAgentId: payload.agentId || 'planner',
         shipmentId: payload.shipmentId,
+        priority: payload.priority || 'medium',
+        createdAt: now,
+        completedAt: now,
       }
 
       setAgentTasks((current) => [...(current || []), task])
@@ -320,6 +333,13 @@ Provide a helpful, concise response addressing their question or concern. Be pro
     setNotifications((current) => (current || []).map((n) => ({ ...n, read: true })))
   }, [setNotifications])
 
+  const handleDeleteTask = useCallback(
+    async (taskId: string) => {
+      setAgentTasks((current) => (current || []).filter((t) => t.id !== taskId))
+    },
+    [setAgentTasks]
+  )
+
   return {
     shipments: shipments || [],
     agents: agents || AGENTS,
@@ -335,6 +355,7 @@ Provide a helpful, concise response addressing their question or concern. Be pro
     analyzeShipment: handleAnalyzeShipment,
     analyzeAllShipments: handleAnalyzeAll,
     assignAgentTask: handleAssignAgentTask,
+    deleteTask: handleDeleteTask,
     sendSupportMessage: handleSendSupportMessage,
     markNotificationRead: handleMarkNotificationRead,
     markAllNotificationsRead: handleMarkAllNotificationsRead,

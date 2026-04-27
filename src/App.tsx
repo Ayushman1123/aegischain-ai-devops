@@ -17,6 +17,7 @@ import { BlockchainPayment } from '@/components/BlockchainPayment'
 import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { SupportChatbot } from '@/components/SupportChatbot'
+import { TaskOrchestrator } from '@/components/TaskOrchestrator'
 import { formatTimestamp } from '@/lib/agents'
 import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
@@ -31,6 +32,7 @@ function App() {
     shipments,
     notifications,
     workflowSteps,
+    agentTasks,
     chatMessages,
     loading: controlTowerLoading,
     isTracking,
@@ -39,6 +41,7 @@ function App() {
     analyzeShipment,
     analyzeAllShipments,
     assignAgentTask,
+    deleteTask,
     sendSupportMessage,
     markNotificationRead,
     markAllNotificationsRead,
@@ -335,10 +338,11 @@ function App() {
 
       <main className="container mx-auto px-6 py-8">
         <Tabs defaultValue="dashboard" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-3">
+          <TabsList className="grid w-full max-w-2xl grid-cols-4">
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="shipments">Shipments</TabsTrigger>
             <TabsTrigger value="agents">Agents</TabsTrigger>
+            <TabsTrigger value="orchestrator">Orchestrator</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
@@ -480,6 +484,41 @@ function App() {
 
             {showWorkflow && (
               <AgentWorkflowView workflowSteps={workflowSteps} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="orchestrator" className="space-y-6">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold mb-2">AI Agent Orchestration</h2>
+              <p className="text-sm text-muted-foreground">
+                Assign custom tasks to AI agents for automated analysis, communication, and decision-making
+              </p>
+            </div>
+
+            <TaskOrchestrator
+              agents={agents}
+              shipments={shipments}
+              onAssignTask={async (task) => {
+                await assignAgentTask({
+                  agentId: task.agentId,
+                  prompt: task.prompt,
+                  shipmentId: task.shipmentId,
+                  priority: task.priority,
+                })
+                toast.success('Task assigned to AI agents')
+                setShowWorkflow(true)
+              }}
+              existingTasks={agentTasks}
+              onDeleteTask={(taskId) => {
+                void deleteTask(taskId)
+                toast.success('Task removed')
+              }}
+            />
+
+            {showWorkflow && workflowSteps.length > 0 && (
+              <div className="mt-6">
+                <AgentWorkflowView workflowSteps={workflowSteps} />
+              </div>
             )}
           </TabsContent>
         </Tabs>
