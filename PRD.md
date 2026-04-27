@@ -68,6 +68,13 @@ The platform orchestrates multiple AI agents, processes real-time supply chain d
 - **Progression**: Dashboard loads → Active shipments queried → Map visualization renders → Status indicators update → Alerts shown for at-risk shipments
 - **Success criteria**: Users see all active shipments at a glance with clear status indicators
 
+### 9. Task Template Library
+- **Functionality**: Pre-built, industry-specific workflows that encode best practices for common supply chain scenarios across 8 industries (Logistics, Manufacturing, Retail, Healthcare, Food & Beverage, Pharma, Automotive, Electronics)
+- **Purpose**: Accelerates AI agent orchestration by providing guided, validated workflows instead of requiring users to craft custom prompts from scratch
+- **Trigger**: User navigates to Orchestrator tab and selects Task Templates
+- **Progression**: Browse templates by industry/category → Select template → Configure variables (shipment ID, parameters, options) → Review expected outcomes → Execute → Monitor agent workflow
+- **Success criteria**: Users can execute complex multi-agent workflows in under 2 minutes with pre-validated templates covering 90% of common scenarios
+
 ## Edge Case Handling
 
 - **Conflicting Agent Recommendations** - System presents multiple agent perspectives with confidence scores, allowing human override

@@ -18,6 +18,7 @@ import { AgentWorkflowView } from '@/components/AgentWorkflowView'
 import { NotificationCenter } from '@/components/NotificationCenter'
 import { SupportChatbot } from '@/components/SupportChatbot'
 import { TaskOrchestrator } from '@/components/TaskOrchestrator'
+import { TaskTemplateLibrary } from '@/components/TaskTemplateLibrary'
 import { formatTimestamp } from '@/lib/agents'
 import { useControlTowerData } from '@/hooks/use-control-tower-data'
 import { useAuthSession } from '@/hooks/use-auth-session'
@@ -495,25 +496,51 @@ function App() {
               </p>
             </div>
 
-            <TaskOrchestrator
-              agents={agents}
-              shipments={shipments}
-              onAssignTask={async (task) => {
-                await assignAgentTask({
-                  agentId: task.agentId,
-                  prompt: task.prompt,
-                  shipmentId: task.shipmentId,
-                  priority: task.priority,
-                })
-                toast.success('Task assigned to AI agents')
-                setShowWorkflow(true)
-              }}
-              existingTasks={agentTasks}
-              onDeleteTask={(taskId) => {
-                void deleteTask(taskId)
-                toast.success('Task removed')
-              }}
-            />
+            <Tabs defaultValue="library" className="space-y-6">
+              <TabsList>
+                <TabsTrigger value="library">Task Templates</TabsTrigger>
+                <TabsTrigger value="custom">Custom Tasks</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="library">
+                <TaskTemplateLibrary
+                  agents={agents}
+                  shipments={shipments}
+                  onUseTemplate={async (task) => {
+                    await assignAgentTask({
+                      agentId: task.agentId,
+                      prompt: task.prompt,
+                      shipmentId: task.shipmentId,
+                      priority: task.priority,
+                    })
+                    toast.success('Template task assigned to AI agents')
+                    setShowWorkflow(true)
+                  }}
+                />
+              </TabsContent>
+
+              <TabsContent value="custom">
+                <TaskOrchestrator
+                  agents={agents}
+                  shipments={shipments}
+                  onAssignTask={async (task) => {
+                    await assignAgentTask({
+                      agentId: task.agentId,
+                      prompt: task.prompt,
+                      shipmentId: task.shipmentId,
+                      priority: task.priority,
+                    })
+                    toast.success('Task assigned to AI agents')
+                    setShowWorkflow(true)
+                  }}
+                  existingTasks={agentTasks}
+                  onDeleteTask={(taskId) => {
+                    void deleteTask(taskId)
+                    toast.success('Task removed')
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
 
             {showWorkflow && workflowSteps.length > 0 && (
               <div className="mt-6">
