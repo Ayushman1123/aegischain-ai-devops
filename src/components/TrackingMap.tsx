@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { Shipment, Coordinates } from '@/types'
