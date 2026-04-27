@@ -10,6 +10,8 @@ import { createCloudStore } from './cloud-store.js'
 import { createRealtimeHub } from './realtime.js'
 import { getCurrentTimestamp, asyncHandler } from './utils.js'
 import { createAgentOrchestrator } from './lanchain-integration.js'
+import TaskAssignmentManager from './task-assignment-manager.js'
+import { createTaskAssignmentRouter } from './task-assignment-routes.js'
 import {
   createAuthRouter,
   createShipmentRouter,
@@ -38,6 +40,7 @@ let realtime
 let httpServer
 let cloudStore
 let agentOrchestrator
+let taskManager
 
 const corsOptions = corsOrigin === '*'
   ? {}
@@ -123,6 +126,7 @@ function registerRoutes() {
   app.use('/api/auth', createAuthRouter(db, jwtSecret, authMiddleware))
   app.use('/api/shipments', authMiddleware, createShipmentRouter(db, { realtime, cloudStore }))
   app.use('/api/agents', authMiddleware, createAgentRouter(db, { realtime, cloudStore }))
+  app.use('/api/tasks', createTaskAssignmentRouter(taskManager, authMiddleware))
   app.use('/api/risk', authMiddleware, createRiskRouter(db))
   app.use('/api/notifications', authMiddleware, createNotificationRouter(db))
   app.use('/api/support', authMiddleware, createSupportRouter(db, { realtime, cloudStore }))
@@ -248,11 +252,17 @@ async function initializeServer() {
     console.log('✅ Database initialized')
 
     // Initialize Enhanced Agent System with LLM
-    const llmProvider = null // Ready for LL M integration in production
+    const llmProvider = null // Ready for LLM integration in production
     agentOrchestrator = createAgentOrchestrator(db, llmProvider)
     console.log('✅ Enhanced Agent System initialized with LLM support')
     console.log(`   - Agents available: ${agentOrchestrator.listAgents().length}`)
     console.log(`   - Tools available: ${agentOrchestrator.listAgents().length * 6}`) // Approximate
+
+    // Initialize Task Assignment Manager
+    taskManager = new TaskAssignmentManager(db, agentOrchestrator)
+    console.log('✅ Task Assignment Manager initialized')
+    console.log('   - Ready to assign custom tasks to agents')
+    console.log('   - Task queue and history tracking active')
 
     cloudStore = createCloudStore()
     if (cloudStore.enabled) {
@@ -310,7 +320,18 @@ async function initializeServer() {
       console.log(`   PATCH  /api/notifications/:id/read - Mark as read`)
       console.log(`   PATCH  /api/notifications/read-all - Mark all notifications as read`)
       console.log(`   GET    /api/agents/workflow      - Get agent workflow history`)
-      console.log(`   POST   /api/agents/tasks         - Assign work to agents`)
+      console.log(`   POST   /api/tasks/assign         - Assign task to agent`)
+      console.log(`   POST   /api/tasks/batch-assign   - Assign multiple tasks`)
+      console.log(`   POST   /api/tasks/execute-pending - Execute pending tasks`)
+      console.log(`   GET    /api/tasks/status/:taskId - Get task status`)
+      console.log(`   GET    /api/tasks/my-tasks       - Get user's tasks`)
+      console.log(`   GET    /api/tasks/queue-stats    - Get queue statistics`)
+      console.log(`   POST   /api/tasks/cancel/:taskId - Cancel task`)
+      console.log(`   POST   /api/tasks/retry/:taskId  - Retry failed task`)
+      console.log(`   GET    /api/tasks/history        - Get task history`)
+      console.log(`   GET    /api/tasks/agent/:agentId/task-types - Available task types`)
+      console.log(`   POST   /api/tasks/quick-assign   - Quick task assignment`)
+      console.log(`   POST   /api/tasks/build-task     - Build custom task`)
       console.log(`   POST   /api/agents/analyze/:id   - Analyze one shipment`)
       console.log(`   POST   /api/agents/analyze-all   - Analyze all shipments`)
       console.log(`   GET    /api/support/chat         - Get chatbot history`)
