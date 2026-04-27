@@ -9,7 +9,7 @@ import { DEFAULT_AGENTS } from './fixtures.js'
 import { createCloudStore } from './cloud-store.js'
 import { createRealtimeHub } from './realtime.js'
 import { getCurrentTimestamp, asyncHandler } from './utils.js'
-import { createAgentOrchestrator } from './lanchain-integration.js'
+import { createAgentOrchestrator, AgentToolWrapper } from './lanchain-integration.js'
 import TaskAssignmentManager from './task-assignment-manager.js'
 import { createTaskAssignmentRouter } from './task-assignment-routes.js'
 import {
@@ -40,6 +40,7 @@ let realtime
 let httpServer
 let cloudStore
 let agentOrchestrator
+let toolWrapper
 let taskManager
 
 const corsOptions = corsOrigin === '*'
@@ -257,6 +258,9 @@ async function initializeServer() {
     console.log('✅ Enhanced Agent System initialized with LLM support')
     console.log(`   - Agents available: ${agentOrchestrator.listAgents().length}`)
     console.log(`   - Tools available: ${agentOrchestrator.listAgents().length * 6}`) // Approximate
+
+    // Initialize Tool Wrapper for agent capabilities
+    toolWrapper = new AgentToolWrapper(agentOrchestrator.agents)
 
     // Initialize Task Assignment Manager
     taskManager = new TaskAssignmentManager(db, agentOrchestrator)
