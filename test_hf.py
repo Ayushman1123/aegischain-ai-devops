@@ -4,8 +4,17 @@ import os
 import traceback
 import sys
 
-from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    print("SKIP: python-dotenv is not installed. Install with: pip install python-dotenv")
+    sys.exit(0)
+
+try:
+    from huggingface_hub import InferenceClient
+except ModuleNotFoundError:
+    print("SKIP: huggingface_hub is not installed. Install with: pip install huggingface_hub")
+    sys.exit(0)
 
 load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN", "")
@@ -18,8 +27,8 @@ print(f"Provider : {HF_PROVIDER}")
 print("-" * 50)
 
 if not HF_TOKEN:
-    print("HF_TOKEN is empty in .env. Add your token and rerun.")
-    sys.exit(1)
+    print("SKIP: HF_TOKEN is empty in .env. Add your token and rerun.")
+    sys.exit(0)
 
 messages = [
     {"role": "system", "content": "You are a helpful assistant. Reply with valid JSON only."},

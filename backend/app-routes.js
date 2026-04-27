@@ -736,7 +736,7 @@ export function createAgentRouter(db, options = {}) {
     const agent = await db.get('SELECT id, name FROM agents WHERE id = ?', [resolvedAgentId])
     const workflowSteps = [
       {
-        id: `${taskId}-planner`,
+        id: uuidv4(),
         taskId,
         agentId: 'planner',
         agentName: 'Planner Agent',
@@ -749,7 +749,7 @@ export function createAgentRouter(db, options = {}) {
         duration: 400,
       },
       {
-        id: `${taskId}-${resolvedAgentId}`,
+        id: uuidv4(),
         taskId,
         agentId: resolvedAgentId,
         agentName: agent?.name || resolvedAgentId,
@@ -766,7 +766,7 @@ export function createAgentRouter(db, options = {}) {
         duration: 700,
       },
       {
-        id: `${taskId}-executor`,
+        id: uuidv4(),
         taskId,
         agentId: 'executor',
         agentName: 'Executor Agent',
@@ -994,6 +994,32 @@ export function createRiskRouter(db) {
     })
   }))
 
+  router.post('/', asyncHandler(async (req, res) => {
+    const { shipmentId, riskScore, riskLevel, factors = [], recommendations = [], analyzedBy = [] } = req.body
+
+    const analysisId = uuidv4()
+    const now = getCurrentTimestamp()
+
+    await db.run(
+      `INSERT INTO risk_analyses (id, shipmentId, riskScore, riskLevel, factors, recommendations, analysisTimestamp, analyzedBy, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [analysisId, shipmentId, riskScore, riskLevel, JSON.stringify(factors), JSON.stringify(recommendations), now, JSON.stringify(analyzedBy), now]
+    )
+
+    res.status(201).json({ 
+      analysis: {
+        id: analysisId,
+        shipmentId,
+        riskScore,
+        riskLevel,
+        factors,
+        recommendations,
+        analysisTimestamp: now,
+        analyzedBy
+      }
+    })
+  }))
+
   return router
 }
 
@@ -1006,6 +1032,33 @@ export function createNotificationRouter(db) {
       [req.user.id]
     )
     res.json({ notifications: notifications.map((row) => ({ ...row, read: Boolean(row.read), actionRequired: Boolean(row.actionRequired) })) })
+  }))
+
+  router.post('/', asyncHandler(async (req, res) => {
+    const { type, shipmentId, title, message, severity = 'info', actionRequired = false } = req.body
+
+    const notificationId = uuidv4()
+    const now = getCurrentTimestamp()
+
+    await db.run(
+      `INSERT INTO notifications (id, userId, type, shipmentId, title, message, severity, read, actionRequired, timestamp, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [notificationId, req.user.id, type, shipmentId, title, message, severity, actionRequired ? 1 : 0, now, now]
+    )
+
+    res.status(201).json({ 
+      notification: {
+        id: notificationId,
+        type,
+        shipmentId,
+        title,
+        message,
+        severity,
+        read: false,
+        actionRequired,
+        timestamp: now
+      }
+    })
   }))
 
   router.patch('/:id/read', asyncHandler(async (req, res) => {

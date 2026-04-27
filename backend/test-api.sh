@@ -6,12 +6,17 @@
 API_BASE_URL="http://localhost:8787"
 STATUS_OK=0
 
+mark_failure() {
+  STATUS_OK=1
+}
+
 echo "🧪 Testing AegisChain Backend API..."
 echo ""
 
 # Test health check
 echo "✓ Testing /api/health..."
 curl -s "$API_BASE_URL/api/health" | grep -q "ok" && echo "  ✅ Health check passed" || echo "  ❌ Health check failed"
+curl -s "$API_BASE_URL/api/health" | grep -q "ok" || mark_failure
 echo ""
 
 # Test login
@@ -27,22 +32,23 @@ if [ -n "$TOKEN" ]; then
 else
   echo "  ❌ Login failed"
   echo "$LOGIN_RESPONSE"
+  mark_failure
 fi
 echo ""
 
 # Test get current user
 echo "✓ Testing GET /api/auth/me..."
-curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/auth/me" | grep -q "test@example.com" && echo "  ✅ Get user passed" || echo "  ❌ Get user failed"
+curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/auth/me" | grep -q "test@example.com" && echo "  ✅ Get user passed" || { echo "  ❌ Get user failed"; mark_failure; }
 echo ""
 
 # Test get agents
 echo "✓ Testing GET /api/agents..."
-curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/agents" | grep -q "planner" && echo "  ✅ Get agents passed" || echo "  ❌ Get agents failed"
+curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/agents" | grep -q "planner" && echo "  ✅ Get agents passed" || { echo "  ❌ Get agents failed"; mark_failure; }
 echo ""
 
 # Test dashboard
 echo "✓ Testing GET /api/dashboard..."
-curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/dashboard" | grep -q "stats" && echo "  ✅ Get dashboard passed" || echo "  ❌ Get dashboard failed"
+curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/dashboard" | grep -q "stats" && echo "  ✅ Get dashboard passed" || { echo "  ❌ Get dashboard failed"; mark_failure; }
 echo ""
 
 # Test create shipment
@@ -59,12 +65,13 @@ if [ -n "$SHIPMENT_ID" ]; then
 else
   echo "  ❌ Create shipment failed"
   echo "$CREATE_RESP"
+  mark_failure
 fi
 echo ""
 
 # Test get shipments
 echo "✓ Testing GET /api/shipments..."
-curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/shipments" | grep -q "Test Shipment" && echo "  ✅ Get shipments passed" || echo "  ❌ Get shipments failed"
+curl -s -H "Authorization: Bearer $TOKEN" "$API_BASE_URL/api/shipments" | grep -q "Test Shipment" && echo "  ✅ Get shipments passed" || { echo "  ❌ Get shipments failed"; mark_failure; }
 echo ""
 
 if [ -n "$SHIPMENT_ID" ]; then
@@ -73,7 +80,7 @@ if [ -n "$SHIPMENT_ID" ]; then
   curl -s -X POST "$API_BASE_URL/api/notifications" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"type\":\"eta_update\",\"shipmentId\":\"$SHIPMENT_ID\",\"title\":\"ETA Updated\",\"message\":\"Your shipment is on track\"}" | grep -q "success" && echo "  ✅ Create notification passed" || echo "  ❌ Create notification failed"
+    -d "{\"type\":\"eta_update\",\"shipmentId\":\"$SHIPMENT_ID\",\"title\":\"ETA Updated\",\"message\":\"Your shipment is on track\"}" | grep -q '"notification"' && echo "  ✅ Create notification passed" || { echo "  ❌ Create notification failed"; mark_failure; }
   echo ""
 
   # Test create risk analysis
@@ -81,8 +88,13 @@ if [ -n "$SHIPMENT_ID" ]; then
   curl -s -X POST "$API_BASE_URL/api/risk" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"shipmentId\":\"$SHIPMENT_ID\",\"riskScore\":45,\"riskLevel\":\"medium\",\"factors\":[],\"recommendations\":[],\"analyzedBy\":[]}" | grep -q "analysisId" && echo "  ✅ Create risk analysis passed" || echo "  ❌ Create risk analysis failed"
+    -d "{\"shipmentId\":\"$SHIPMENT_ID\",\"riskScore\":45,\"riskLevel\":\"medium\",\"factors\":[],\"recommendations\":[],\"analyzedBy\":[]}" | grep -q '"analysis"' && echo "  ✅ Create risk analysis passed" || { echo "  ❌ Create risk analysis failed"; mark_failure; }
   echo ""
 fi
 
-echo "✅ API testing complete!"
+if [ "$STATUS_OK" -eq 0 ]; then
+  echo "✅ API testing complete!"
+else
+  echo "❌ API testing completed with failures"
+  exit 1
+fi

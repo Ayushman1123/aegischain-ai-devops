@@ -1,10 +1,6 @@
 import sqlite3 from 'sqlite3'
 import { dirname } from 'path'
-import { fileURLToPath } from 'url'
 import { existsSync, mkdirSync } from 'fs'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
 
 class Database {
   constructor(dbPath) {
@@ -228,8 +224,8 @@ class Database {
       ]
 
       let completed = 0
-      
-      queries.forEach((query, index) => {
+
+      queries.forEach((query) => {
         this.db.run(query, (err) => {
           if (err) {
             reject(err)

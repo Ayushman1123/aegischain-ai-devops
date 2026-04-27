@@ -261,7 +261,6 @@ export function createRiskRouter(db) {
   }))
 
   router.post('/', asyncHandler(async (req, res) => {
-    const userId = req.user?.id
     const { shipmentId, riskScore, riskLevel, factors = [], recommendations = [], analyzedBy = [] } = req.body
 
     const analysisId = uuidv4()

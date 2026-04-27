@@ -80,7 +80,38 @@ function App() {
   }
 
   if (!user) {
-    return null
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <Card className="w-full max-w-md border-border/60 bg-card/80 backdrop-blur">
+          <div className="p-6 space-y-4">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight">Control tower unavailable</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {profileError || 'Unable to initialize your session. Ensure backend services are running and reachable.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  window.location.reload()
+                }}
+              >
+                Retry
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  localStorage.removeItem('aegischain.api.base')
+                  window.location.reload()
+                }}
+              >
+                Reset API Connection
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   if (user && controlTowerLoading) {

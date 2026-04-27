@@ -277,3 +277,57 @@ export function generateMockActivity(agents: Agent[]): AgentActivity[] {
   
   return activities.slice(0, 10)
 }
+
+export function generateMockShipments(): Shipment[] {
+  return [...SAMPLE_SHIPMENTS]
+}
+
+export function generateMockNotifications(): import('@/types').NotificationAlert[] {
+  const now = new Date()
+  return [
+    {
+      id: 'notif-1',
+      type: 'crisis',
+      shipmentId: 'SHP-2024-003',
+      title: 'Critical Alert: Refrigeration Failure',
+      message: 'Perishable Goods - Miami shipment experiencing refrigeration system failure',
+      severity: 'error',
+      timestamp: new Date(now.getTime() - 300000).toISOString(),
+      read: false,
+      actionRequired: true,
+    },
+    {
+      id: 'notif-2',
+      type: 'delay',
+      shipmentId: 'SHP-2024-002',
+      title: 'Weather Delay',
+      message: 'Electronics - Seattle shipment delayed due to weather in Portland area',
+      severity: 'warning',
+      timestamp: new Date(now.getTime() - 600000).toISOString(),
+      read: false,
+      actionRequired: false,
+    },
+    {
+      id: 'notif-3',
+      type: 'eta_update',
+      shipmentId: 'SHP-2024-005',
+      title: 'ETA Update: Ahead of Schedule',
+      message: 'Pharmaceuticals - Boston shipment is ahead of schedule',
+      severity: 'success',
+      timestamp: new Date(now.getTime() - 900000).toISOString(),
+      read: false,
+      actionRequired: false,
+    },
+    {
+      id: 'notif-4',
+      type: 'traffic',
+      shipmentId: 'SHP-2024-004',
+      title: 'Traffic Delay',
+      message: 'Manufacturing Parts - Detroit experiencing minor traffic delays on I-75',
+      severity: 'info',
+      timestamp: new Date(now.getTime() - 1200000).toISOString(),
+      read: true,
+      actionRequired: false,
+    },
+  ]
+}

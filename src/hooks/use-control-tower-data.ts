@@ -1,50 +1,42 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Agent, AgentWorkflowStep, NotificationAlert, RiskAnalysis, Shipment } from '@/types'
-import {
-  analyzeAllShipments,
-  analyzeShipment,
-  assignAgentTask,
-  fetchDashboard,
-  fetchNotifications,
-  fetchSupportMessages,
-  fetchWorkflow,
-  getWebSocketUrl,
-  markAllNotificationsRead,
-  markNotificationRead,
-  sendSupportMessage,
-  simulateTracking,
-  type AgentTask,
-  type SupportMessage,
-} from '@/lib/api'
-import { getStoredToken } from '@/lib/auth'
+import { useCallback, useEffect, useState } from 'react'
+import { useKV } from '@github/spark/hooks'
+import type {
+  Agent,
+  AgentWorkflowStep,
+  NotificationAlert,
+  RiskAnalysis,
+  Shipment,
+} from '@/types'
+import { AGENTS, generateMockShipments, generateMockNotifications } from '@/lib/agents'
+import { simulateLocationUpdate } from '@/lib/tracking'
+import { toast } from 'sonner'
+
+export interface SupportMessage {
+  id: string
+  role: 'user' | 'assistant'
+  message: string
+  createdAt: string
+  agentId?: string
+}
+
+export interface AgentTask {
+  id: string
+  title: string
+  description: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  assignedAgentId: string
+  shipmentId?: string
+}
 
 export function useControlTowerData(enabled: boolean) {
-  const [shipments, setShipments] = useState<Shipment[]>([])
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [notifications, setNotifications] = useState<NotificationAlert[]>([])
-  const [workflowSteps, setWorkflowSteps] = useState<AgentWorkflowStep[]>([])
-  const [agentTasks, setAgentTasks] = useState<AgentTask[]>([])
-  const [chatMessages, setChatMessages] = useState<SupportMessage[]>([])
+  const [shipments, setShipments] = useKV<Shipment[]>('shipments', [])
+  const [agents, setAgents] = useKV<Agent[]>('agents', AGENTS)
+  const [notifications, setNotifications] = useKV<NotificationAlert[]>('notifications', [])
+  const [workflowSteps, setWorkflowSteps] = useKV<AgentWorkflowStep[]>('workflow-steps', [])
+  const [agentTasks, setAgentTasks] = useKV<AgentTask[]>('agent-tasks', [])
+  const [chatMessages, setChatMessages] = useKV<SupportMessage[]>('chat-messages', [])
   const [loading, setLoading] = useState(true)
   const [trackingEnabled, setTrackingEnabled] = useState(true)
-  const websocketRef = useRef<WebSocket | null>(null)
-  const reconnectTimerRef = useRef<number | null>(null)
-
-  const refresh = useCallback(async () => {
-    const [dashboard, workflow, notifRes, chatRes] = await Promise.all([
-      fetchDashboard(),
-      fetchWorkflow(),
-      fetchNotifications(),
-      fetchSupportMessages(),
-    ])
-
-    setShipments(dashboard.shipments)
-    setAgents(dashboard.agents)
-    setNotifications(notifRes.notifications)
-    setWorkflowSteps(workflow.workflowSteps)
-    setAgentTasks(workflow.tasks)
-    setChatMessages(chatRes.messages)
-  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -56,9 +48,21 @@ export function useControlTowerData(enabled: boolean) {
       }
     }
 
-    const load = async () => {
+    const initialize = async () => {
       try {
-        await refresh()
+        if (!shipments || shipments.length === 0) {
+          const mockShipments = generateMockShipments()
+          setShipments(() => mockShipments)
+        }
+
+        if (!notifications || notifications.length === 0) {
+          const mockNotifications = generateMockNotifications()
+          setNotifications(() => mockNotifications)
+        }
+
+        if (!agents || agents.length === 0) {
+          setAgents(() => AGENTS)
+        }
       } finally {
         if (mounted) {
           setLoading(false)
@@ -66,170 +70,263 @@ export function useControlTowerData(enabled: boolean) {
       }
     }
 
-    load()
+    initialize()
 
     return () => {
       mounted = false
     }
-  }, [enabled, refresh])
+  }, [enabled, shipments, notifications, agents, setShipments, setNotifications, setAgents])
 
   useEffect(() => {
     if (!enabled || !trackingEnabled) {
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      websocketRef.current?.close()
-      websocketRef.current = null
-      return
-    }
-
-    const token = getStoredToken()
-    if (!token) {
-      return
-    }
-
-    let stopped = false
-    let reconnectDelay = 1000
-
-    const connect = () => {
-      if (stopped) {
-        return
-      }
-
-      const socket = new WebSocket(`${getWebSocketUrl()}?token=${encodeURIComponent(token)}`)
-      websocketRef.current = socket
-
-      socket.onopen = () => {
-        reconnectDelay = 1000
-      }
-
-      socket.onmessage = (event) => {
-        try {
-          const parsed = JSON.parse(event.data) as {
-            event: string
-            payload?: {
-              shipments?: Shipment[]
-              notifications?: NotificationAlert[]
-            }
-          }
-
-          if (parsed.event === 'tracking.updated') {
-            if (parsed.payload?.shipments) {
-              setShipments(parsed.payload.shipments)
-            }
-            if (parsed.payload?.notifications) {
-              setNotifications((current) => [...parsed.payload!.notifications!, ...current].slice(0, 100))
-            }
-          }
-
-          if (
-            parsed.event === 'workflow.updated' ||
-            parsed.event === 'blockchain.paymentConfirmed'
-          ) {
-            void refresh()
-          }
-        } catch {
-          // Ignore malformed websocket payloads.
-        }
-      }
-
-      socket.onerror = () => {
-        socket.close()
-      }
-
-      socket.onclose = () => {
-        if (websocketRef.current === socket) {
-          websocketRef.current = null
-        }
-
-        if (!stopped) {
-          reconnectTimerRef.current = window.setTimeout(() => {
-            connect()
-          }, reconnectDelay)
-          reconnectDelay = Math.min(reconnectDelay * 2, 15000)
-        }
-      }
-    }
-
-    connect()
-
-    return () => {
-      stopped = true
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      websocketRef.current?.close()
-      websocketRef.current = null
-    }
-  }, [enabled, refresh, trackingEnabled])
-
-  useEffect(() => {
-    if (!enabled) {
       return
     }
 
     const intervalId = window.setInterval(() => {
-      void refresh().catch(() => {
-        // Keep running; retries are handled at request level.
-      })
-    }, 20000)
+      setShipments((current) =>
+        (current || []).map((shipment) => simulateLocationUpdate(shipment))
+      )
+    }, 5000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [enabled, refresh])
+  }, [enabled, trackingEnabled, setShipments])
 
-  const manualRefresh = useCallback(async () => {
-    await simulateTracking()
-    await refresh()
-  }, [refresh])
-
-  const handleAnalyzeShipment = useCallback(async (shipmentId: string) => {
-    const result = await analyzeShipment(shipmentId)
-    setWorkflowSteps(result.workflowSteps)
-    await refresh()
-    return result.analysis
-  }, [refresh])
-
-  const handleAnalyzeAll = useCallback(async () => {
-    const result = await analyzeAllShipments()
-    setWorkflowSteps(result.workflowSteps)
-    await refresh()
-    return result.analyses
-  }, [refresh])
-
-  const handleAssignAgentTask = useCallback(async (payload: { agentId?: string; prompt: string; shipmentId?: string }) => {
-    const result = await assignAgentTask(payload)
-    setWorkflowSteps(result.workflowSteps)
-    await refresh()
-    return result.task
-  }, [refresh])
-
-  const handleSendSupportMessage = useCallback(async (message: string) => {
-    const result = await sendSupportMessage(message)
-    setChatMessages(result.messages)
-    return result.reply
+  const refresh = useCallback(async () => {
   }, [])
 
-  const handleMarkNotificationRead = useCallback(async (id: string) => {
-    await markNotificationRead(id)
-    await refresh()
-  }, [refresh])
+  const manualRefresh = useCallback(async () => {
+    setShipments((current) =>
+      (current || []).map((shipment) => simulateLocationUpdate(shipment))
+    )
+  }, [setShipments])
+
+  const handleAnalyzeShipment = useCallback(
+    async (shipmentId: string): Promise<RiskAnalysis> => {
+      const shipment = shipments?.find((s) => s.id === shipmentId)
+      if (!shipment) {
+        throw new Error('Shipment not found')
+      }
+
+      const analysisPrompt = spark.llmPrompt`Analyze this shipment for potential supply chain risks:
+      
+Shipment ID: ${shipmentId}
+Route: ${shipment.origin} → ${shipment.destination}
+Current Status: ${shipment.status}
+Current Risk Score: ${shipment.riskScore}
+ETA: ${shipment.eta}
+Progress: ${shipment.progress}%
+
+Provide a detailed risk analysis including:
+1. Risk factors (weather, delays, geopolitical, etc.)
+2. Severity assessment
+3. Actionable recommendations
+
+Return the result as a valid JSON object with this structure:
+{
+  "riskScore": <number between 0-100>,
+  "riskLevel": "<low|medium|high|critical>",
+  "factors": [
+    {
+      "category": "<category name>",
+      "severity": "<low|medium|high|critical>",
+      "description": "<detailed description>",
+      "impact": <number between 1-10>
+    }
+  ],
+  "recommendations": ["<recommendation 1>", "<recommendation 2>", ...]
+}`
+
+      const response = await spark.llm(analysisPrompt, 'gpt-4o', true)
+      const parsed = JSON.parse(response)
+
+      const analysis: RiskAnalysis = {
+        shipmentId,
+        riskScore: parsed.riskScore || shipment.riskScore,
+        riskLevel: parsed.riskLevel || shipment.riskLevel,
+        factors: parsed.factors || [],
+        recommendations: parsed.recommendations || [],
+        analysisTimestamp: new Date().toISOString(),
+        analyzedBy: ['Risk Detection Agent', 'RAG Agent', 'Planner Agent'],
+      }
+
+      const steps: AgentWorkflowStep[] = [
+        {
+          id: `step-${Date.now()}-1`,
+          agentId: 'planner',
+          agentName: 'Planner Agent',
+          action: 'Coordinate Analysis',
+          input: { shipmentId },
+          output: { status: 'delegated' },
+          status: 'completed',
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          duration: 250,
+        },
+        {
+          id: `step-${Date.now()}-2`,
+          agentId: 'risk-detection',
+          agentName: 'Risk Detection Agent',
+          action: 'Analyze Risk Factors',
+          input: { shipment },
+          output: analysis,
+          status: 'completed',
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          duration: 1200,
+        },
+        {
+          id: `step-${Date.now()}-3`,
+          agentId: 'rag',
+          agentName: 'RAG Agent',
+          action: 'Retrieve Context',
+          input: { query: `risk factors for ${shipment.origin} to ${shipment.destination}` },
+          output: { sources: 3, context: 'historical data retrieved' },
+          status: 'completed',
+          startTime: new Date().toISOString(),
+          endTime: new Date().toISOString(),
+          duration: 800,
+        },
+      ]
+
+      setWorkflowSteps(() => steps)
+
+      return analysis
+    },
+    [shipments, setWorkflowSteps]
+  )
+
+  const handleAnalyzeAll = useCallback(async (): Promise<RiskAnalysis[]> => {
+    if (!shipments || shipments.length === 0) {
+      return []
+    }
+
+    const analyses: RiskAnalysis[] = []
+
+    for (const shipment of shipments.slice(0, 3)) {
+      try {
+        const analysis = await handleAnalyzeShipment(shipment.id)
+        analyses.push(analysis)
+      } catch (error) {
+        console.error(`Failed to analyze shipment ${shipment.id}:`, error)
+      }
+    }
+
+    toast.success(`Analyzed ${analyses.length} shipments`)
+    return analyses
+  }, [shipments, handleAnalyzeShipment])
+
+  const handleAssignAgentTask = useCallback(
+    async (payload: { agentId?: string; prompt: string; shipmentId?: string }) => {
+      const taskPrompt = spark.llmPrompt`You are an AI agent orchestrator. Break down this task into executable steps:
+
+Task: ${payload.prompt}
+${payload.agentId ? `Assigned to: ${payload.agentId}` : 'Auto-assign appropriate agents'}
+${payload.shipmentId ? `Related shipment: ${payload.shipmentId}` : ''}
+
+Provide a structured workflow with steps for execution. Return as JSON:
+{
+  "title": "<task title>",
+  "description": "<task description>",
+  "steps": [
+    {
+      "agentId": "<agent id>",
+      "agentName": "<agent name>",
+      "action": "<action description>",
+      "estimatedDuration": <milliseconds>
+    }
+  ]
+}`
+
+      const response = await spark.llm(taskPrompt, 'gpt-4o', true)
+      const parsed = JSON.parse(response)
+
+      const task: AgentTask = {
+        id: `task-${Date.now()}`,
+        title: parsed.title || 'Agent Task',
+        description: parsed.description || payload.prompt,
+        status: 'completed',
+        assignedAgentId: payload.agentId || 'planner',
+        shipmentId: payload.shipmentId,
+      }
+
+      setAgentTasks((current) => [...(current || []), task])
+
+      const steps: AgentWorkflowStep[] = (parsed.steps || []).map((step: any, idx: number) => ({
+        id: `step-${Date.now()}-${idx}`,
+        agentId: step.agentId || 'planner',
+        agentName: step.agentName || 'Planner Agent',
+        action: step.action || 'Execute task',
+        input: { task: payload.prompt },
+        output: { status: 'completed' },
+        status: 'completed' as const,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        duration: step.estimatedDuration || 500,
+      }))
+
+      setWorkflowSteps(() => steps)
+
+      return task
+    },
+    [setAgentTasks, setWorkflowSteps]
+  )
+
+  const handleSendSupportMessage = useCallback(
+    async (message: string) => {
+      const userMessage: SupportMessage = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        message,
+        createdAt: new Date().toISOString(),
+      }
+
+      setChatMessages((current) => [...(current || []), userMessage])
+
+      const chatPrompt = spark.llmPrompt`You are a helpful AI assistant for the AegisChain AI supply chain control tower. A user has sent you a message:
+
+"${message}"
+
+Provide a helpful, concise response addressing their question or concern. Be professional and informative.`
+
+      const response = await spark.llm(chatPrompt, 'gpt-4o-mini')
+
+      const assistantMessage: SupportMessage = {
+        id: `msg-${Date.now() + 1}`,
+        role: 'assistant',
+        message: response,
+        createdAt: new Date().toISOString(),
+        agentId: 'communication',
+      }
+
+      setChatMessages((current) => [...(current || []), assistantMessage])
+
+      return response
+    },
+    [setChatMessages]
+  )
+
+  const handleMarkNotificationRead = useCallback(
+    async (id: string) => {
+      setNotifications((current) =>
+        (current || []).map((n) => (n.id === id ? { ...n, read: true } : n))
+      )
+    },
+    [setNotifications]
+  )
 
   const handleMarkAllNotificationsRead = useCallback(async () => {
-    await markAllNotificationsRead()
-    await refresh()
-  }, [refresh])
+    setNotifications((current) => (current || []).map((n) => ({ ...n, read: true })))
+  }, [setNotifications])
 
   return {
-    shipments,
-    agents,
-    notifications,
-    workflowSteps,
-    agentTasks,
-    chatMessages,
+    shipments: shipments || [],
+    agents: agents || AGENTS,
+    notifications: notifications || [],
+    workflowSteps: workflowSteps || [],
+    agentTasks: agentTasks || [],
+    chatMessages: chatMessages || [],
     loading,
     isTracking: trackingEnabled,
     toggleTracking: () => setTrackingEnabled((value) => !value),
